@@ -297,22 +297,22 @@ def train(args, labeled_trainloader, unlabeled_trainloader, test_loader,model, o
 
         for batch_idx in range(args.eval_step):
             try:
-                inputs_x, targets_x, index_x = labeled_iter.next()
+                inputs_x, targets_x, index_x = next(labeled_iter)   #labeled_iter.next()
             except:
                 if args.world_size > 1:
                     labeled_epoch += 1
                     labeled_trainloader.sampler.set_epoch(labeled_epoch)
                 labeled_iter = iter(labeled_trainloader)
-                inputs_x, targets_x,index_x = labeled_iter.next()
+                inputs_x, targets_x,index_x = next(labeled_iter)    #labeled_iter.next()
 
             try:
-                (inputs_u_w, inputs_u_s), _ = unlabeled_iter.next()
+                (inputs_u_w, inputs_u_s), _ = next(unlabeled_iter)    #unlabeled_iter.next()
             except:
                 if args.world_size > 1:
                     unlabeled_epoch += 1
                     unlabeled_trainloader.sampler.set_epoch(unlabeled_epoch)
                 unlabeled_iter = iter(unlabeled_trainloader)
-                (inputs_u_w, inputs_u_s), _ = unlabeled_iter.next()
+                (inputs_u_w, inputs_u_s), _ = next(unlabeled_iter)  #unlabeled_iter.next()
 
             data_time.update(time.time() - end)
             batch_size = inputs_x.shape[0]

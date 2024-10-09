@@ -19,7 +19,7 @@ from models import model_dict
 from models.util import ConvReg, LinearEmbed
 from models.util import Connector, Translator, Paraphraser
 from distiller_zoo.AIN import transfer_conv, statm_loss
-from dataset.cifar100 import get_cifar100_dataloaders
+from dataset.cifar100 import get_cifar100_dataloaders, get_unseen_class, DATASET_CLASS
 from helper.util import adjust_learning_rate
 from distiller_zoo import DistillKL, HintLoss, Attention, Similarity, Correlation, VIDLoss, RKDLoss
 from distiller_zoo import PKT, ABLoss, FactorTransfer, KDSVD, FSP, NSTLoss,CRDLoss
@@ -39,7 +39,8 @@ def parse_option():
     parser.add_argument('--v2', action='store_true',help='seperate batch or not')
     parser.add_argument('--print_freq', type=int, default=100, help='print frequency')
     parser.add_argument('--tb_freq', type=int, default=500, help='tb frequency')
-    parser.add_argument('--save_freq', type=int, default=40, help='save frequency')
+    parser.add_argument('--save_freq', type=int, default=80, help='save frequency')
+    
     parser.add_argument('--batch_size', type=int, default=64, help='batch_size')
     parser.add_argument('--num_workers', type=int, default=8, help='num of workers to use')
     parser.add_argument('--epochs', type=int, default=240, help='number of training epochs')
@@ -47,10 +48,15 @@ def parse_option():
 
     # labeled dataset
     parser.add_argument('--dataset', type=str, default='cifar100', choices=['cifar100'], help='dataset')
-
+    parser.add_argument('--split_seed', type=int, default=12345, help='random seed for reproducing dataset split')
 
     # select unlabeled dataset
     parser.add_argument('--ood', type=str, default='tin', choices=['tin', 'places', 'None'])
+    parser.add_argument('--num_ood_class', type=int, default=200, help='number of classes in the augment dataset')
+    parser.add_argument('--num_total_class', type=int, action='store', help='Constraint on total number of classes in label and unlabeled sets')
+    
+    parser.add_argument('--lb_prop', type=float, default=1.0, help='labeled sample proportion within target dataset')
+    parser.add_argument('--include-labeled', action='store_true', help='include labeled-set data in unlabeled-set')
 
     # optimization
     parser.add_argument('--learning_rate', type=float, default=0.05, help='learning rate')
@@ -100,9 +106,12 @@ def parse_option():
 
     opt.model_t = get_teacher_name(opt.path_t)
 
-    opt.model_name = 'O:{}S:{}_T:{}_{}_{}_r:{}_a:{}_b:{}e:{}_{}'.format(opt.ood, opt.model_s, opt.model_t, opt.dataset,
-                                                                    opt.distill, opt.gamma, opt.alpha, opt.beta,
-                                                           str(os.environ['CONDA_DEFAULT_ENV']),str(time.ctime()))
+    num_total_class = DATASET_CLASS[opt.dataset] + opt.num_ood_class if opt.num_total_class is None else opt.num_total_class
+    opt.model_name = 'O:{}S:{}_T:{}_{}_{}_r:{}_a:{}_b:{}_t:{}_oc:{}_tc:{}_lb:{}_lbin:{}_{}'.format(opt.ood, opt.model_s, opt.model_t, opt.dataset,
+                                                                    opt.distill, opt.gamma, opt.alpha, opt.beta, opt.kd_T,
+                                                                    opt.num_ood_class, num_total_class, 
+                                                                    opt.lb_prop, opt.include_labeled, 
+                                                                    str(time.ctime()))
     opt.save_folder = os.path.join(opt.model_path, opt.model_name)
     os.makedirs(opt.save_folder, exist_ok=True)
     print(opt.save_folder)
@@ -121,7 +130,8 @@ def main():
 
     # dataloader
     if opt.dataset == 'cifar100':
-        n_cls = 100
+        num_unseen_class = get_unseen_class(DATASET_CLASS[opt.dataset], opt.num_ood_class)
+        n_cls = DATASET_CLASS[opt.dataset] - num_unseen_class    
         if opt.distill == 'crd':
             model_t = get_teacher_name(opt.path_t)
             train_loader, _, val_loader, n_data = get_cifar100_dataloaders(batch_size=opt.batch_size,
@@ -131,13 +141,21 @@ def main():
                                                                            k=opt.nce_k,
                                                                            mode=opt.mode,
                                                                            ood=opt.ood,
-                                                                           model=model_t)
+                                                                           model=model_t,   # FIXME: No need; Substitute with data path
+                                                                           num_ood_class=opt.num_ood_class,
+                                                                           num_total_class=opt.num_total_class,
+                                                                           lb_prop=opt.lb_prop, 
+                                                                           include_labeled=opt.include_labeled, 
+                                                                           split_seed=opt.split_seed)
         else:
             train_loader, utrain_loader, val_loader, n_data = get_cifar100_dataloaders(batch_size=opt.batch_size,
                                                                                        num_workers=opt.num_workers,
                                                                                        is_instance=True,
                                                                                        is_sample=False,
-                                                                                       ood=opt.ood)
+                                                                                       ood=opt.ood, 
+                                                                                       num_ood_class=opt.num_ood_class, num_total_class=opt.num_total_class,
+                                                                                       lb_prop=opt.lb_prop, include_labeled=opt.include_labeled, 
+                                                                                       split_seed=opt.split_seed)
     else:
         raise NotImplementedError(opt.dataset)
 
@@ -274,13 +292,24 @@ def main():
     teacher_acc, _, _ = validate(val_loader, model_t, criterion_cls, opt)
     print('teacher accuracy: ', teacher_acc)
 
+    #train_only_labeled = utrain_loader is None 
+
+    # TODO: For incomplte label training (lb_prop < 1.0), increase epoch/iter num proportionally. 
+    # Otherwise, set a fixed num_iter per epoch by repeat iterating or subsample labeled & unlabeled sets. 
+
+    # NOTE: Originally total_data = len(train_loader.dataset)
+    u_data_len = len(utrain_loader.dataset) if utrain_loader is not None else 0
+    total_data = (len(train_loader.dataset) + u_data_len)//2 if not opt.include_labeled else u_data_len//2 
+    iter_per_epoch = total_data // opt.batch_size
+
+    # TODO: Consider making batch_size ratio dependent on label-unlabel dataset-size ratio
     # routine
     for epoch in range(1, opt.epochs + 1):
         adjust_learning_rate(epoch, opt, optimizer)
         print("==> training...")
 
         time1 = time.time()
-        if opt.distill == 'crd':
+        if opt.distill == 'crd':    # train_only_labeled
             train_acc, train_loss = train_bl(epoch, train_loader, module_list, criterion_list, optimizer, opt)
         else:
             if opt.v2:
@@ -288,7 +317,7 @@ def main():
                 train_acc, train_loss = train_ssl2(epoch, train_loader, utrain_loader, module_list, criterion_list,optimizer, opt)
             else:
                 # in the same batch
-                train_acc, train_loss = train_ssl(epoch, train_loader, utrain_loader, module_list, criterion_list,optimizer, opt)
+                train_acc, train_loss = train_ssl(epoch, iter_per_epoch, train_loader, utrain_loader, module_list, criterion_list,optimizer, opt)
 
         time2 = time.time()
         print('epoch {}, total time {:.2f}'.format(epoch, time2 - time1))
@@ -312,7 +341,7 @@ def main():
             print('saving the best model!')
             torch.save(state, save_file)
         msg = "Epoch %d test_acc %.3f, test_top5 %.3f, best_acc %.3f, best_top5 %.3f" % (
-        epoch, test_acc, tect_acc_top5, best_acc, best_acc_top5)
+            epoch, test_acc, tect_acc_top5, best_acc, best_acc_top5)
         logging.info(msg)
 
     # This best accuracy is only for printing purpose.

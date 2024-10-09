@@ -39,7 +39,8 @@ def get_data_folder():
         data_folder = '/media/jd4615/dataB/Datasets/classification/'
     else:
         # TODO put your dataset here
-        raise ValueError(f'folder is not given')
+        data_folder = '/data/Datasets/classification/'
+        #raise ValueError(f'folder is not given')
 
     if not os.path.isdir(data_folder):
         os.makedirs(data_folder)

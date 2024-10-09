@@ -170,32 +170,38 @@ def train(args, labeled_dataset, unlabeled_dataset, test_loader, model, optimize
         for batch_idx in range(args.eval_step):
             ## labeled data
             try:
-                (_, inputs_x_s, inputs_x), targets_x, _ = labeled_iter.next()
+                #(_, inputs_x_s, inputs_x), targets_x, _ = labeled_iter.next()
+                (_, inputs_x_s, inputs_x), targets_x, _ = next(labeled_iter)
             except:
                 if args.world_size > 1:
                     labeled_epoch += 1
                     labeled_trainloader.sampler.set_epoch(labeled_epoch)
 
                 labeled_iter = iter(labeled_trainloader)
-                (_, inputs_x_s, inputs_x), targets_x, _ = labeled_iter.next()
+                #(_, inputs_x_s, inputs_x), targets_x, _ = labeled_iter.next()
+                (_, inputs_x_s, inputs_x), targets_x, _ = next(labeled_iter)
 
             ## unlabeled data
             if use_fix:
                 try:
-                    (inputs_u_w, inputs_u_s, _), _ = unlabeled_iter.next()
+                    #(inputs_u_w, inputs_u_s, _), _ = unlabeled_iter.next()
+                    (inputs_u_w, inputs_u_s, _), _ = next(unlabeled_iter)
                 except:
                     if args.world_size > 1:
                         unlabeled_epoch += 1
                         unlabeled_trainloader.sampler.set_epoch(unlabeled_epoch)
                     unlabeled_iter = iter(unlabeled_trainloader)
-                    (inputs_u_w, inputs_u_s, _), _ = unlabeled_iter.next()
+                    #(inputs_u_w, inputs_u_s, _), _ = unlabeled_iter.next()
+                    (inputs_u_w, inputs_u_s, _), _ = next(unlabeled_iter)
 
             ## all unlabeled data
             try:
-                (inputs_all_w, inputs_all_s, _), _ = unlabeled_all_iter.next()
+                #(inputs_all_w, inputs_all_s, _), _ = unlabeled_all_iter.next()
+                (inputs_all_w, inputs_all_s, _), _ = next(unlabeled_all_iter)
             except:
                 unlabeled_all_iter = iter(unlabeled_trainloader_all)
-                (inputs_all_w, inputs_all_s, _), _ = unlabeled_all_iter.next()
+                #(inputs_all_w, inputs_all_s, _), _ = unlabeled_all_iter.next()
+                (inputs_all_w, inputs_all_s, _), _ = next(unlabeled_all_iter)
 
             data_time.update(time.time() - end)
 
