@@ -7,7 +7,6 @@ import torch.nn.functional as F
 
 
 
-
 def adjust_learning_rate(epoch, opt, optimizer):
     """Sets the learning rate to the initial LR decayed by decay rate every steep step"""
     steps = np.sum(epoch > np.asarray(opt.lr_decay_epochs))
@@ -50,6 +49,15 @@ def accuracy(output, target, topk=(1,)):
             correct_k = correct[:k].contiguous().view(-1).float().sum(0, keepdim=True)
             res.append(correct_k.mul_(100.0 / batch_size))
         return res
+    
+def precision(output, target, topk=(1,)):
+    # TODO: Implement
+    return 0
+
+def recall(output, target, topk=(1,)):
+    # TODO: Implement
+    return 0
+
 
 def linear_rampup(current, rampup_length):
     if rampup_length == 0:
@@ -57,6 +65,12 @@ def linear_rampup(current, rampup_length):
     else:
         current = np.clip(current / rampup_length, 0.0, 1.0)
         return float(current)
+
+METRIC_DICT = {
+    "accuracy": accuracy, 
+    "precision": precision, 
+    "recall": recall,
+}
 
 if __name__ == '__main__':
 

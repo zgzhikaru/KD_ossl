@@ -4,7 +4,7 @@ import sys
 import time
 import torch
 import torch.nn.functional as F
-from .util import AverageMeter, accuracy
+from .util import AverageMeter, accuracy, METRIC_DICT
 
 
 def train_vanilla(epoch, train_loader, model, criterion, optimizer, opt):
@@ -612,12 +612,16 @@ def train_ssldistill2(epoch, train_loader,utrain_loader, module_list, criterion_
     return top1.avg, losses.avg
 
 
-def validate(val_loader, model, criterion, opt):
+def validate(val_loader, model, criterion, opt, eval_metrics='accuracy'):
     """validation"""
     batch_time = AverageMeter()
     losses = AverageMeter()
-    top1 = AverageMeter()
-    top5 = AverageMeter()
+    #top1 = AverageMeter()
+    #top5 = AverageMeter()
+    
+    if not isinstance(eval_metrics, list):
+        eval_metrics = [eval_metrics]
+    results = {metric: AverageMeter() for metric in eval_metrics}
 
     # switch to evaluate mode
     model.eval()
@@ -637,10 +641,15 @@ def validate(val_loader, model, criterion, opt):
             loss = criterion(output, target)
 
             # measure accuracy and record loss
-            acc1, acc5 = accuracy(output, target, topk=(1, 5))
+            #acc1, acc5 = accuracy(output, target, topk=(1, 5))
+            # TODO: Make eval_metric an abstract wrapper
+            for metric in eval_metrics:
+                #results = metric(output, target)
+                results[metric].update(METRIC_DICT[metric](output, target))
+            
             losses.update(loss.item(), input.size(0))
-            top1.update(acc1[0], input.size(0))
-            top5.update(acc5[0], input.size(0))
+            #top1.update(acc1[0], input.size(0))
+            #top5.update(acc5[0], input.size(0))
 
             # measure elapsed time
             batch_time.update(time.time() - end)
@@ -653,9 +662,11 @@ def validate(val_loader, model, criterion, opt):
                       'Acc@1 {top1.val:.3f} ({top1.avg:.3f})\t'
                       'Acc@5 {top5.val:.3f} ({top5.avg:.3f})'.format(
                        idx, len(val_loader), batch_time=batch_time, loss=losses,
-                       top1=top1, top5=top5))
+                       ))#top1=top1, top5=top5))
 
-        print(' VAL * Acc@1 {top1.avg:.3f} Acc@5 {top5.avg:.3f}'
-              .format(top1=top1, top5=top5))
+        #print(' VAL * Acc@1 {top1.avg:.3f} Acc@5 {top5.avg:.3f}'
+        #      .format(top1=top1, top5=top5))
 
-    return top1.avg, top5.avg, losses.avg
+
+    #return top1.avg, top5.avg, losses.avg
+    return {metric: results[metric].avg for metric in results}  # A dict of mean of each metric

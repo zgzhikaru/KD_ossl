@@ -155,7 +155,7 @@ def main():
                                                                                        ood=opt.ood, 
                                                                                        num_ood_class=opt.num_ood_class, num_total_class=opt.num_total_class,
                                                                                        lb_prop=opt.lb_prop, include_labeled=opt.include_labeled, 
-                                                                                       split_seed=opt.split_seed)
+                                                                                       split_seed=opt.split_seed, class_split_seed=opt.split_seed)
     else:
         raise NotImplementedError(opt.dataset)
 

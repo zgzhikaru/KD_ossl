@@ -286,6 +286,27 @@ def adaptive_channel(student_feat, teacher_feat):
     normalized_feat = (student_feat - s_mean.expand(size)) / s_std.expand(size)
     return normalized_feat * t_std.expand(size) + t_mean.expand(size)
 
+
+def get_num_classifier_head(model):
+    # TODO: Condition on model name or check fc attribute exists
+    return 0
+
+
+def prune_head(model, eval_class_idx):
+    num_test_class = len(eval_class_idx)
+    heads = model.fc     # TODO: Check exists or condition on model name
+    if not num_test_class < heads.out_features:
+        return model    # No need to prune
+
+    # TODO: Index the fc weight and bias
+    pruned_head = nn.Linear(in_features=heads.in_features, out_features=num_test_class)
+    pruned_head.weight = heads.weight[eval_class_idx]
+    pruned_head.bias = heads.bias[eval_class_idx]
+
+    model.fc = pruned_head  # TODO: Consider a deep copy
+    return model
+
+
 if __name__ == '__main__':
     import torch
 
