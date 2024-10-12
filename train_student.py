@@ -19,7 +19,7 @@ from models import model_dict
 from models.util import ConvReg, LinearEmbed
 from models.util import Connector, Translator, Paraphraser
 from distiller_zoo.AIN import transfer_conv, statm_loss
-from dataset.cifar100 import get_cifar100_dataloaders, get_cifar100_test, get_unseen_class, DATASET_CLASS
+from dataset.cifar100 import get_cifar100_dataloaders, get_cifar100_test, DATASET_CLASS
 from helper.util import adjust_learning_rate
 from distiller_zoo import DistillKL, HintLoss, Attention, Similarity, Correlation, VIDLoss, RKDLoss
 from distiller_zoo import PKT, ABLoss, FactorTransfer, KDSVD, FSP, NSTLoss,CRDLoss
@@ -149,15 +149,10 @@ def main():
                                                                            include_labeled=opt.include_labeled, 
                                                                            split_seed=opt.split_seed)
         else:
-            #train_loader, utrain_loader, val_loader, n_data = \
-            #train_loader, utrain_loader, n_data = 
-            train_loader, utrain_loader = get_cifar100_dataloaders(batch_size=opt.batch_size,
-                                                                    num_workers=opt.num_workers,
-                                                                    is_instance=True,
-                                                                    is_sample=False,
-                                                                    ood=opt.ood, 
+            train_loader, utrain_loader = get_cifar100_dataloaders(batch_size=opt.batch_size, num_workers=opt.num_workers,
+                                                                    is_instance=True, is_sample=False,
+                                                                    ood=opt.ood, num_total_samples=opt.total_samples, 
                                                                     num_ood_class=opt.num_ood_class, num_total_class=num_id_class,
-                                                                    num_total_samples=opt.total_samples, 
                                                                     lb_prop=opt.lb_prop, include_labeled=opt.include_labeled, 
                                                                     split_seed=opt.split_seed, class_split_seed=opt.split_seed)
             val_loader = get_cifar100_test(batch_size=opt.batch_size//2,
@@ -298,20 +293,18 @@ def main():
         cudnn.benchmark = True
 
     # validate teacher accuracy
-    teacher_acc, _, _ = validate(val_loader, model_t, criterion_cls, opt)
+    #teacher_acc, _, _ = validate(val_loader, model_t, criterion_cls, opt)
+    metric_dict, test_loss = validate(val_loader, model_s, criterion_cls, opt)
+    teacher_acc = metric_dict["acc1"]
     print('teacher accuracy: ', teacher_acc)
 
-    #train_only_labeled = utrain_loader is None 
-
-    # TODO: For incomplte label training (lb_prop < 1.0), increase epoch/iter num proportionally. 
-    # Otherwise, set a fixed num_iter per epoch by repeat iterating or subsample labeled & unlabeled sets. 
 
     # NOTE: Originally total_data = len(train_loader.dataset)
     u_data_len = len(utrain_loader.dataset) if utrain_loader is not None else 0
     total_data = (len(train_loader.dataset) + u_data_len)//2 if not opt.include_labeled else u_data_len//2 
     iter_per_epoch = total_data // opt.batch_size
 
-    # TODO: Consider making batch_size ratio dependent on label-unlabel dataset-size ratio
+
     # routine
     for epoch in range(1, opt.epochs + 1):
         adjust_learning_rate(epoch, opt, optimizer)
@@ -321,16 +314,13 @@ def main():
         if opt.distill == 'crd':    # train_only_labeled
             train_acc, train_loss = train_bl(epoch, train_loader, module_list, criterion_list, optimizer, opt)
         else:
-            if opt.v2:
-                # in the seperate batch
-                train_acc, train_loss = train_ssl2(epoch, train_loader, utrain_loader, module_list, criterion_list,optimizer, opt)
-            else:
-                # in the same batch
-                train_acc, train_loss = train_ssl(epoch, iter_per_epoch, train_loader, utrain_loader, module_list, criterion_list,optimizer, opt)
+            train_acc, train_loss = train_ssl(epoch, iter_per_epoch, train_loader, utrain_loader, module_list, criterion_list,optimizer, opt)
 
         time2 = time.time()
         print('epoch {}, total time {:.2f}'.format(epoch, time2 - time1))
-        test_acc, tect_acc_top5, test_loss = validate(val_loader, model_s, criterion_cls, opt)
+        #test_acc, tect_acc_top5, test_loss = validate(val_loader, model_s, criterion_cls, opt)  # TODO: Input (acc1, acc5) as two metrics
+        metric_dict, test_loss = validate(val_loader, model_s, criterion_cls, opt)
+        test_acc = metric_dict["acc1"]
 
         logger.add_scalar('train/train_loss', train_loss, epoch)
         logger.add_scalar('train/train_acc', train_acc, epoch)
@@ -340,7 +330,7 @@ def main():
         # save the best model
         if test_acc > best_acc:
             best_acc = test_acc
-            best_acc_top5 = tect_acc_top5
+            #best_acc_top5 = tect_acc_top5
             state = {
                 'epoch': epoch,
                 'model': model_s.state_dict(),
@@ -349,8 +339,9 @@ def main():
             save_file = os.path.join(opt.save_folder, '{}_best.pth'.format(opt.model_s))
             print('saving the best model!')
             torch.save(state, save_file)
-        msg = "Epoch %d test_acc %.3f, test_top5 %.3f, best_acc %.3f, best_top5 %.3f" % (
-            epoch, test_acc, tect_acc_top5, best_acc, best_acc_top5)
+        msg = "Epoch %d test_acc %.3f, best_acc %.3f" % (epoch, test_acc, best_acc)
+            #"Epoch %d test_acc %.3f, test_top5 %.3f, best_acc %.3f, best_top5 %.3f" % (
+            #epoch, test_acc, tect_acc_top5, best_acc, best_acc_top5)
         logging.info(msg)
 
     # This best accuracy is only for printing purpose.

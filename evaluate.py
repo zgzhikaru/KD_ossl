@@ -22,12 +22,12 @@ from models import model_dict
 from models.util import ConvReg, LinearEmbed
 from models.util import Connector, Translator, Paraphraser
 from distiller_zoo.AIN import transfer_conv, statm_loss
-from dataset.cifar100 import get_cifar100_test
+from dataset.cifar100 import get_cifar100_test, DATASET_CLASS
 from helper.util import adjust_learning_rate
 
 from helper.loops import validate
+from helper.util import accuracy
 from utils.utils import get_model_name, init_logging
-from models.util import prune_head
 
 
 def parse_option():
@@ -40,7 +40,6 @@ def parse_option():
 
     # labeled dataset
     parser.add_argument('--dataset', type=str, default='cifar100', choices=['cifar100'], help='dataset')
-    #parser.add_argument('--split_seed', type=int, default=12345, help='random seed for reproducing dataset split')
     parser.add_argument('--split_seed', type=int, default=12345, help='random seed for reproducing dataset split')
 
     # select unlabeled dataset
@@ -84,25 +83,31 @@ def main():
     assert model.fc.out_features == num_model_class, "Number of classifier heads does not match"
   
     # Setup test dataset
-    test_loader, test_class_idx = get_cifar100_test(batch_size=opt.batch_size,
-                                                        num_workers=opt.num_workers,
-                                                        is_instance=True, is_sample=False,
-                                                        num_classes=opt.num_eval_classes,
-                                                        split_seed=opt.split_seed)
+    test_loader = get_cifar100_test(batch_size=opt.batch_size,
+                                    num_workers=opt.num_workers,
+                                    is_instance=True, is_sample=False,
+                                    num_classes=opt.num_eval_classes,
+                                    split_seed=opt.split_seed)
     assert len(test_loader.dataset.classes) == opt.num_eval_classes, "Wrong number of class split"
     
     # Check model num classifier head; Prune head to match num test class(100 - num_unseen_class)
-    unincluded_class = np.setdiff(test_loader.classes, num_model_class)
-    assert not any(unincluded_class), "Classifier heads do span all test classes"
 
-    # TODO: Implement prune_head
-    if test_loader.num_classes < num_model_class:     # Redundant classifier head exists
-        model = prune_head(model, test_class_idx)
+    eval_classes = test_loader.dataset.classes
+    if len(eval_classes) < DATASET_CLASS['cifar100']:     # Redundant classifier head exists
+        eval_metrics = {"acc1": lambda y_hat, y: accuracy(y_hat, y, output_cls=eval_classes)}
+    else:
+        eval_metrics = {"acc1": accuracy}
+    """
+    eval_metrics = {
+        'accuracy': accuracy, 
+        'precision': precision, 
+        'recall': recall, 
+    }
+    """
+    metric_vals = validate(test_loader, model, None, opt, metrics=eval_metrics)
 
-    eval_metrics = [
-        'accuracy', 'precision', 'recall', 
-    ]
-    metric_vals = validate(test_loader, model, eval_metrics, opt, criterion=None)
+    
+    print("Test top-1 accuracy: ", metric_vals["acc1"])
 
     save_name = os.path.join(parent_path, "evaluation.json")
     with open(save_name, "w") as outfile: 

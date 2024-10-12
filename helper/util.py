@@ -6,7 +6,6 @@ import torch.nn.functional as F
 
 
 
-
 def adjust_learning_rate(epoch, opt, optimizer):
     """Sets the learning rate to the initial LR decayed by decay rate every steep step"""
     steps = np.sum(epoch > np.asarray(opt.lr_decay_epochs))
@@ -34,13 +33,19 @@ class AverageMeter(object):
         self.avg = self.sum / self.count
 
 
-def accuracy(output, target, topk=(1,)):
-    """Computes the accuracy over the k top predictions for the specified values of k"""
+def accuracy(output, target, topk=(1,), output_cls=None):
     with torch.no_grad():
         maxk = max(topk)
         batch_size = target.size(0)
 
-        _, pred = output.topk(maxk, 1, True, True)
+        if output_cls is not None: 
+            #reduced_output = output[:,output_cls]   # Mask-out non-existing class before computing accuracy
+            _, subset_pred = output[:,output_cls].topk(maxk, 1, True, True)
+            pred = output_cls[subset_pred]
+        else:
+            _, pred = output.topk(maxk, 1, True, True)
+
+        #_, pred = output.topk(maxk, 1, True, True)
         pred = pred.t()
         correct = pred.eq(target.view(1, -1).expand_as(pred))
 
@@ -49,7 +54,7 @@ def accuracy(output, target, topk=(1,)):
             correct_k = correct[:k].contiguous().view(-1).float().sum(0, keepdim=True)
             res.append(correct_k.mul_(100.0 / batch_size))
         return res
-    
+
 def precision(output, target, topk=(1,)):
     # TODO: Implement
     return 0
@@ -66,11 +71,6 @@ def linear_rampup(current, rampup_length):
         current = np.clip(current / rampup_length, 0.0, 1.0)
         return float(current)
 
-METRIC_DICT = {
-    "accuracy": accuracy, 
-    "precision": precision, 
-    "recall": recall,
-}
 
 if __name__ == '__main__':
 

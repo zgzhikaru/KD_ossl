@@ -4,19 +4,24 @@ import torch
 import logging
 from models import model_dict
 
+
+def get_config(model_path):
+    config_dict = {}
+    return config_dict
+
 def get_model_name(model_path):
     """parse teacher name"""
     segments = model_path.split('/')[-2].split('_')
     if segments[0] != 'wrn':
         return segments[0], segments[1] # TODO: Add config to corresponding position in the title; Otherwise, use a dict
     else:
-        return segments[0] + '_' + segments[1] + '_' + segments[2]
+        return segments[0] + '_' + segments[1] + '_' + segments[2], segments[3]
 
 
 def load_model(model_path):
     print('==> loading teacher model')
-    model_t, n_cls = get_model_name(model_path)
-    model = model_dict[model_t](num_classes=n_cls)
+    model_name, n_cls = get_model_name(model_path)
+    model = model_dict[model_name](num_classes=n_cls)
     model.load_state_dict(torch.load(model_path)['model'])
     print('==> done')
     return model, n_cls

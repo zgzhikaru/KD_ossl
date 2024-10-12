@@ -81,8 +81,8 @@ def parse_option():
 
 
     #num_unseen_class = get_unseen_class(DATASET_CLASS[opt.dataset], opt.num_ood_class, num_total_class=opt.num_total_class)
-    opt.model_name = '{}_{}_lb:{}_split:{}_uc:{}_lr:{}_decay:{}_trial:{}'.format(opt.model, opt.dataset, 
-                                                                           opt.lb_prop, opt.split_seed, num_unseen_class, 
+    opt.model_name = '{}_{}_c:{}_lb:{}_split:{}_lr:{}_decay:{}_trial:{}'.format(opt.model, opt.dataset, 
+                                                                                opt.num_classes, opt.lb_prop, opt.split_seed, 
                                                                            opt.learning_rate, opt.weight_decay, opt.trial)
     
     opt.save_folder = os.path.join(opt.model_path, opt.model_name)
@@ -123,6 +123,7 @@ def main():
 
         #num_unseen_class = get_unseen_class(DATASET_CLASS[opt.dataset], opt.num_ood_class)
         n_cls = DATASET_CLASS[opt.dataset] - opt.num_classes  #100
+        # TODO: Consider represent shrinkage in output-size as a mask
     else:
         raise NotImplementedError(opt.dataset)
 
@@ -159,10 +160,12 @@ def main():
         logger.log_value('train_acc', train_acc, epoch)
         logger.log_value('train_loss', train_loss, epoch)
 
-        test_acc, test_acc_top5, test_loss = validate(val_loader, model, criterion, opt)
+        #test_acc, test_acc_top5, test_loss = validate(val_loader, model, criterion, opt)
+        metric_dict, test_loss = validate(val_loader, model, criterion, opt)
+        test_acc = metric_dict["acc1"]
 
         logger.log_value('test_acc', test_acc, epoch)
-        logger.log_value('test_acc_top5', test_acc_top5, epoch)
+        #logger.log_value('test_acc_top5', test_acc_top5, epoch)
         logger.log_value('test_loss', test_loss, epoch)
 
         # save the best model

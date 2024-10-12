@@ -31,32 +31,6 @@ DATASET_CLASS = {
     "TIN": 200,
 }
 
-def split_ood_set(base_ood_set, num_subset_cls=200, instance_prop=1.0, 
-                  instance_split_seed=None, class_split_seed=None):
-    
-    num_full_cls = DATASET_CLASS[base_ood_set.name]
-    num_subset_cls = np.clip(num_subset_cls, 0, num_full_cls)
-    assert num_subset_cls > 0
-    cls_idx = get_class_idx(num_subset_cls, num_full_cls, class_split_seed)
-
-    full_samples_per_cls = len(base_ood_set) // len(base_ood_set.labels)
-    instance_prop = np.clip(instance_prop, 0.0, 1.0)
-    samples_per_cls = np.ceil(instance_prop * full_samples_per_cls)
-
-
-    if instance_split_seed is not None:
-        rng = np.random.default_rng(instance_split_seed)
-
-    all_sample_idx = []
-    for cls in base_ood_set.labels:
-        sample_idx = np.arange(full_samples_per_cls)
-        if instance_split_seed is not None:
-            rng.shuffle(sample_idx)
-        sample_idx = sample_idx[:samples_per_cls]
-        all_sample_idx.append(sample_idx)
-
-    all_sample_idx = np.stack(all_sample_idx)[cls_idx].flatten()
-    return all_sample_idx
 
 # TIN: TinyImageNet
 class TinInstance(torch.utils.data.Dataset):
@@ -412,6 +386,34 @@ def get_class_idx(num_classes, num_full_class, split_seed):
     return class_idx
 
 
+def split_ood_set(base_ood_set, num_subset_cls=200, instance_prop=1.0, 
+                  instance_split_seed=None, class_split_seed=None):
+    
+    num_full_cls = DATASET_CLASS[base_ood_set.name]
+    num_subset_cls = np.clip(num_subset_cls, 0, num_full_cls)
+    assert num_subset_cls > 0
+    cls_idx = get_class_idx(num_subset_cls, num_full_cls, class_split_seed)
+
+    full_samples_per_cls = len(base_ood_set) // len(base_ood_set.labels)
+    instance_prop = np.clip(instance_prop, 0.0, 1.0)
+    samples_per_cls = np.ceil(instance_prop * full_samples_per_cls)
+
+
+    if instance_split_seed is not None:
+        rng = np.random.default_rng(instance_split_seed)
+
+    all_sample_idx = []
+    for cls in base_ood_set.labels:
+        sample_idx = np.arange(full_samples_per_cls)
+        if instance_split_seed is not None:
+            rng.shuffle(sample_idx)
+        sample_idx = sample_idx[:samples_per_cls]
+        all_sample_idx.append(sample_idx)
+
+    all_sample_idx = np.stack(all_sample_idx)[cls_idx].flatten()
+    return all_sample_idx
+
+
 def get_cifar100_test(batch_size=64, num_workers=4, 
                       num_classes=DATASET_CLASS['cifar100'],
                       split_seed=None):
@@ -445,7 +447,7 @@ def get_cifar100_test(batch_size=64, num_workers=4,
                              shuffle=False,
                              num_workers=num_workers)
         
-    return test_loader, test_idx
+    return test_loader  #, test_idx
     
 
 
