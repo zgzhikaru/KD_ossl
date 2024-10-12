@@ -28,26 +28,54 @@ cifar100_std = (0.2675, 0.2565, 0.2761)
 DATASET_CLASS = {
     "cifar10": 10,
     "cifar100": 100,
+    "TIN": 200,
 }
+
+def split_ood_set(base_ood_set, num_subset_cls=200, instance_prop=1.0, 
+                  instance_split_seed=None, class_split_seed=None):
+    
+    num_full_cls = DATASET_CLASS[base_ood_set.name]
+    num_subset_cls = np.clip(num_subset_cls, 0, num_full_cls)
+    assert num_subset_cls > 0
+    cls_idx = get_class_idx(num_subset_cls, num_full_cls, class_split_seed)
+
+    full_samples_per_cls = len(base_ood_set) // len(base_ood_set.labels)
+    instance_prop = np.clip(instance_prop, 0.0, 1.0)
+    samples_per_cls = np.ceil(instance_prop * full_samples_per_cls)
+
+
+    if instance_split_seed is not None:
+        rng = np.random.default_rng(instance_split_seed)
+
+    all_sample_idx = []
+    for cls in base_ood_set.labels:
+        sample_idx = np.arange(full_samples_per_cls)
+        if instance_split_seed is not None:
+            rng.shuffle(sample_idx)
+        sample_idx = sample_idx[:samples_per_cls]
+        all_sample_idx.append(sample_idx)
+
+    all_sample_idx = np.stack(all_sample_idx)[cls_idx].flatten()
+    return all_sample_idx
 
 # TIN: TinyImageNet
 class TinInstance(torch.utils.data.Dataset):
-    def __init__(self, data_folder, transform, subset=200):
+    def __init__(self, data_folder, transform): #, subset=200):
         self.transform = transform
         data_path = '%s/tinyImageNet200/%s/' % (data_folder, 'train')
 
         labels = sorted([basename(normpath(clss)) for clss in glob(data_path + '*/')])
-        total_cls = len(labels)
+        #total_cls = len(labels)
+        #subset = np.clip(subset, a_min=0, a_max=total_cls)
 
-        subset = np.clip(subset, a_min=0, a_max=total_cls)
-        if not subset:  # Requesting zero-size dataset indicating no loader needed
-            self.img_list = []
-            return
-
-        self.img_list = [f for clss in labels[:subset] 
+        #self.img_list = [f for clss in labels[:subset] 
+        self.img_list = [f for clss in labels
                          for f in glob(data_path + "/%s/images/*.JPEG" % (clss))]
         #self.img_list = [f for f in glob(data_path + "**/*.JPEG", recursive=True)]
         self.img_list.sort()
+
+        #self.num_classes = len(self.labels)
+        self.name = 'TIN'
         print("ood dataset size: ", len(self.img_list))
         
 
@@ -67,6 +95,7 @@ class TinInstance(torch.utils.data.Dataset):
         img = Image.open(self.img_list[index])
         img = img.convert('RGB')
         return self.transform(img), index
+    
 
 
 class Places365Instance(datasets.Places365):
@@ -289,20 +318,21 @@ def split_class_set(num_classes, split_size, rng=None):
 
 
 def x_u_split(base_dataset, lb_prop=1.0, include_labeled=True, 
-              #num_unseen_class=0, include_unseen=False, 
               class_idx=None, include_unseen=False, 
-              min_size=0, rng=None):
+              instance_prop=1.0, min_size=0, rng=None):
     
     n_data = len(base_dataset)
-    num_classes = base_dataset.num_classes  #len(np.unique(labels))
+    num_classes = base_dataset.num_classes 
     full_label_per_class = n_data // num_classes
     
     lb_prop = np.clip(lb_prop, 0, 1.0)
-    #num_unseen_class = np.clip(num_unseen_class, 0, num_classes).astype(int)
+    instance_prop = np.clip(instance_prop, 0, lb_prop)
 
     unlabeled_idx = np.arange(n_data) 
     #if not num_unseen_class > 0 and not lb_prop < 1.0 and not num_unseen_class > 0:  # No split requested
-    if not lb_prop < 1.0 and class_idx is None:  # No split requested
+    if not any([class_idx is not None, 
+                instance_prop < 1.0, 
+                lb_prop < 1.0]):  # No split requested
         labeled_idx = np.arange(n_data)
         #if not include_labeled:
         return labeled_idx, unlabeled_idx if include_labeled else None
@@ -314,7 +344,9 @@ def x_u_split(base_dataset, lb_prop=1.0, include_labeled=True,
         assert len(np.unique(class_idx)) == len(class_idx)
         class_in = class_in[class_idx]
 
-    label_per_class = int(np.ceil(lb_prop * full_label_per_class))
+    #label_per_class = int(np.ceil(lb_prop * full_label_per_class))
+    instance_per_class = int(np.ceil(instance_prop * full_label_per_class))
+    label_per_class = int(np.ceil(lb_prop * instance_per_class))
     labels = np.array(base_dataset.targets)
 
     
@@ -322,43 +354,38 @@ def x_u_split(base_dataset, lb_prop=1.0, include_labeled=True,
     unlabeled_idx = []
     for i in range(num_classes):
         idx = np.where(labels == i)[0]
+        if rng is not None:     # Randomness of splitting
+            rng.shuffle(idx)
+        if instance_prop < 1.0:
+            idx = idx[:instance_per_class]
+        idx_u = idx.copy()
         idx_l = idx.copy() 
         if lb_prop < 1.0:
-            if rng is None:
-                print("Deprecated: RNG is not set; Unsaved split cannot be retrieved for downstream-tasks")
-                idx_l = np.random.choice(idx_l, label_per_class, False)
-            else:
-                idx_l = rng.choice(idx_l, label_per_class, False)   
+            idx_l = idx_l[:label_per_class]
+            idx_u = idx if include_labeled else idx[label_per_class:]
         # Keep rng to ensure reproducing same split between teacher and student
         #labeled_idx.extend(idx_l)
         #unlabeled_idx.extend(idx)
         labeled_idx.append(idx_l)
-        unlabeled_idx.append(idx)
+        unlabeled_idx.append(idx_u)
+
     labeled_idx = np.stack(labeled_idx)[class_idx].flatten()
-    unlabeled_idx = np.stack(unlabeled_idx)[class_idx].flatten() \
-        if not include_unseen else np.arange(n_data)
+    if lb_prop < 1.0:
+        unlabeled_idx = np.stack(unlabeled_idx)[class_idx].flatten() 
+        if include_unseen:
+            unlabeled_idx = np.stack(unlabeled_idx).flatten()
+    elif not include_labeled:   # Unlabeled set does not exist at all
+        return labeled_idx, None
 
-
-    #labeled_idx = np.array(labeled_idx)
-    #unlabeled_idx = np.array(unlabeled_idx) if not include_unseen else np.arange(n_data)
-
-    # TODO: Add another independent seed shuffling the classes category
-    # classes = rng_test.shuffle(classes)[:num_classes]
-    # labeled_idx[classes].flatten()
-    # unlabeled_idx = unlabeled_idx[classes].flatten()
 
     assert len(labeled_idx) == label_per_class * num_classes \
-        and (len(unlabeled_idx) == full_label_per_class * num_classes and not include_unseen)
+        and (len(unlabeled_idx) == instance_per_class * num_classes and not include_unseen)
 
-    if not include_labeled:
-        if lb_prop < 1.0:
-            unlabeled_idx = np.setdiff1d(unlabeled_idx, labeled_idx)
-            assert (len(labeled_idx) + len(unlabeled_idx) == n_data and include_unseen) \
-                or (len(labeled_idx) + len(unlabeled_idx) == full_label_per_class * num_classes and not include_unseen)
-        else:   # 
-            return labeled_idx, None
+    assert (len(labeled_idx) + len(unlabeled_idx) == n_data and include_unseen) \
+        or (len(labeled_idx) + len(unlabeled_idx) == instance_per_class * num_classes and not include_unseen)
 
-    min_size = np.clip(min_size, a_min=0, a_max=n_data) # TODO: Move the min_size check before each return
+    # Keep a minimum size by repeating the existing data
+    min_size = np.clip(min_size, a_min=0, a_max=n_data) 
     if len(labeled_idx) < min_size:
         labeled_idx = np.concatenate([labeled_idx for _ in range(int(np.ceil(min_size / len(labeled_idx))))])
     if len(unlabeled_idx) < min_size:
@@ -370,27 +397,23 @@ def x_u_split(base_dataset, lb_prop=1.0, include_labeled=True,
     return labeled_idx, unlabeled_idx
 
 
-def get_unseen_class(num_id_class, num_ood_class, num_total_class=None):
-    #num_id_class = base_dataset.num_classes
-    if num_total_class is None:
-        return 0
-    #num_unseen_class = 0
-    #if num_total_class is not None:     # Constraint on total number of classes
-    #num_total_class = num_id_class  # Then: num_ood > 0 & < num_id
-    
-    assert  num_total_class > num_ood_class \
-        and num_total_class <=  num_ood_class + num_id_class, \
-        "Range Exceeded: Number of specified total class "
-    
-    num_unseen_class = num_id_class - num_total_class + num_ood_class
-    #num_id_class - (num_total_class - num_ood_class)
-    # NOTE: Can be extended to request extra num_unseen_class by adding another argument
+def get_class_idx(num_classes, num_full_class, split_seed):
+    num_full_class = DATASET_CLASS['cifar100']
+    num_classes = np.clip(num_classes, a_min=0, a_max=num_full_class)
+    assert num_classes > 0, "Number of class should be positive integer"
 
-    return num_unseen_class
+    class_idx = None      # Default no subset splitting; indicating full set
+    if num_classes <  num_full_class:
+        if split_seed is not None:
+            split_rng = np.random.default_rng(seed=split_seed)
+        
+        class_idx, _ = split_class_set(num_full_class, num_classes, rng=split_rng)
+
+    return class_idx
 
 
 def get_cifar100_test(batch_size=64, num_workers=4, 
-                      num_unseen_class=0, 
+                      num_classes=DATASET_CLASS['cifar100'],
                       split_seed=None):
     data_folder = get_data_folder()
     
@@ -405,16 +428,11 @@ def get_cifar100_test(batch_size=64, num_workers=4,
                                     train=False,
                                     transform=test_transform)
     
-    seen_ids = None      # Default no subset splitting; indicating full set
-    if num_unseen_class > 0:
-        split_rng = np.random.default_rng(seed=split_seed)
-        total_class = DATASET_CLASS['cifar100']
-        
-        seen_ids, unseen_ids = split_class_set(total_class, total_class - num_unseen_class, rng=split_rng)
+
+    class_idx = get_class_idx(num_classes, num_full_class=DATASET_CLASS['cifar100'], split_seed=split_seed)
 
     test_idx, _ = x_u_split(full_test_set, 
-                            class_idx=seen_ids, include_unseen=False, 
-                            rng=np.random.default_rng(split_seed))
+                            class_idx=class_idx, include_unseen=False)
     
     test_set = CIFAR100Instance(root=data_folder + '/cifar/',
                                 download=True,
@@ -436,7 +454,8 @@ def get_cifar100_dataloaders(batch_size=128, num_workers=8,
                              is_sample=True,
                              k=4096, mode='exact', percent=1.0, ood='tin', model=None, 
                              lb_prop=1.0, include_labeled=False, 
-                             num_ood_class=200, num_total_class=None, num_unseen_class=None,
+                             num_ood_class=200, num_id_class=DATASET_CLASS['cifar100'], 
+                             num_total_samples=None,
                              split_seed=None, class_split_seed=None):
     """
     cifar 100
@@ -455,13 +474,6 @@ def get_cifar100_dataloaders(batch_size=128, num_workers=8,
         transforms.Normalize(cifar100_mean, cifar100_std),
     ])
 
-    tiny_transform = transforms.Compose([
-        transforms.Resize(32),
-        # transforms.RandomCrop(32, padding=4), # TODO
-        transforms.RandomHorizontalFlip(),
-        transforms.ToTensor(),
-        transforms.Normalize(cifar100_mean, cifar100_std),
-    ])
 
     if is_instance and not is_sample:
         base_dataset = CIFAR100Instance(root=data_folder + '/cifar/',
@@ -470,45 +482,43 @@ def get_cifar100_dataloaders(batch_size=128, num_workers=8,
                                      transform=train_transform)
 
     elif is_sample and not is_instance:
-        base_dataset = InstanceSample(root=data_folder, data=ood, model=model, transform=tiny_transform,
+        base_dataset = InstanceSample(root=data_folder, data=ood, model=model, transform=utrain_transform,
                                    target_transform=None, k=k, mode=mode, is_sample=True, percent=percent)
     else:
         base_dataset = datasets.CIFAR100(root=data_folder + '/cifar/',
                                       download=True,
                                       train=True,
                                       transform=train_transform)
-    n_data = len(base_dataset)
 
-
-    train_loader = DataLoader(base_dataset,
+    # Fully supervied training
+    if not lb_prop < 1.0 and not num_ood_class > 0 and not include_labeled:
+        train_loader = DataLoader(base_dataset,
                             batch_size=batch_size,
                             shuffle=True,
                             num_workers=num_workers,
                             drop_last=True)
-
-    # Fully supervied training
-    if not lb_prop < 1.0 and not num_ood_class > 0 and not include_labeled:
-            train_loader = DataLoader(base_dataset,
-                                batch_size=batch_size,
-                                shuffle=True,
-                                num_workers=num_workers,
-                                drop_last=True)
-            return train_loader, None, len(base_dataset)
+        return train_loader, None
         
-    # Split test set given num_unseen_class
-    if num_unseen_class is None:
-        num_unseen_class = get_unseen_class(base_dataset.num_classes, num_ood_class, num_total_class=num_total_class)
+    # Split test set given requested num_id_class
+    class_idx = get_class_idx(num_id_class, num_full_class=DATASET_CLASS['cifar100'], split_seed=class_split_seed)
+    #else:
+    num_total_class = num_id_class + num_ood_class
 
-        split_rng = np.random.default_rng(seed=class_split_seed)  # TODO: Consider decouple class split seed from data split seed
-        total_class = DATASET_CLASS['cifar100']
-        
-        class_idx, _ = split_class_set(total_class, total_class - num_unseen_class, rng=split_rng)
-  
- 
+
+    #if not lb_prop < 1.0:   # lb_prop can be manually specified
+    full_samples_per_cls = len(base_dataset) // base_dataset.num_classes
+    if num_total_samples is not None:   # Automatically derive lb_prop to keep total samples consistent
+        # WARNING: Shared samples_per_cls only work under include_lb_to_ub mode
+        samples_per_cls = num_total_samples // num_total_class   # Be careful with impact of inexactness due to flooring
+    else:
+        samples_per_cls = full_samples_per_cls
+
+    instance_prop = samples_per_cls/full_samples_per_cls
+
     lb_idx, ulb_idx = x_u_split(base_dataset, 
-                                lb_prop=lb_prop, include_labeled=include_labeled, 
+                                instance_prop=instance_prop, min_size=batch_size, 
                                 class_idx=class_idx, include_unseen=False, 
-                                min_size=batch_size, 
+                                lb_prop=lb_prop, include_labeled=include_labeled, 
                                 rng=np.random.default_rng(split_seed))
     
     lb_train_set = CIFAR100Instance(root=data_folder + '/cifar/',
@@ -538,15 +548,34 @@ def get_cifar100_dataloaders(batch_size=128, num_workers=8,
                             shuffle=True,
                             num_workers=num_workers,
                             drop_last=True) if ulb_train_set is not None else None
-        return train_loader, utrain_loader, len(lb_train_set)
+        return train_loader, utrain_loader
     
     
     if ood == 'tin':
+        utrain_transform = transforms.Compose([
+            transforms.Resize(32),
+            # transforms.RandomCrop(32, padding=4), # TODO
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize(cifar100_mean, cifar100_std),
+        ])
+
         ood_set = TinInstance(
-            data_folder, transform=tiny_transform, subset=num_ood_class)
+            data_folder, transform=utrain_transform)    #, subset=num_ood_class)
+        # Requested dataset splitting
+        sample_idx = split_ood_set(ood_set, num_subset_cls=num_ood_class, instance_prop=instance_prop,
+                                    split_seed=split_seed, class_split_seed=class_split_seed)
+        ood_set.set_index(sample_idx)
+
     elif ood == 'places':
+        utrain_transform = transforms.Compose([
+            transforms.Resize(32),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize(cifar100_mean, cifar100_std),
+        ])
         ood_set = Places365Instance(
-            data_folder + '/places365', transform=tiny_transform)
+            data_folder + '/places365', transform=utrain_transform)
 
     if ulb_train_set is None:
         utrain_loader = DataLoader(ood_set, batch_size=batch_size,
@@ -559,7 +588,7 @@ def get_cifar100_dataloaders(batch_size=128, num_workers=8,
         print("unlabeled datasize: ", len(unlabeled_set))
     
     if is_instance or is_sample:
-        return train_loader, utrain_loader, len(lb_train_set)
+        return train_loader, utrain_loader
     else:
         return train_loader, utrain_loader
 

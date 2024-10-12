@@ -19,7 +19,7 @@ from models import model_dict
 from models.util import ConvReg, LinearEmbed
 from models.util import Connector, Translator, Paraphraser
 from distiller_zoo.AIN import transfer_conv, statm_loss
-from dataset.cifar100 import get_cifar100_dataloaders, get_unseen_class, DATASET_CLASS
+from dataset.cifar100 import get_cifar100_dataloaders, get_cifar100_test, get_unseen_class, DATASET_CLASS
 from helper.util import adjust_learning_rate
 from distiller_zoo import DistillKL, HintLoss, Attention, Similarity, Correlation, VIDLoss, RKDLoss
 from distiller_zoo import PKT, ABLoss, FactorTransfer, KDSVD, FSP, NSTLoss,CRDLoss
@@ -53,7 +53,8 @@ def parse_option():
     # select unlabeled dataset
     parser.add_argument('--ood', type=str, default='tin', choices=['tin', 'places', 'None'])
     parser.add_argument('--num_ood_class', type=int, default=200, help='number of classes in the augment dataset')
-    parser.add_argument('--num_total_class', type=int, action='store', help='Constraint on total number of classes in label and unlabeled sets')
+    parser.add_argument('--num_total_class', type=int, action='store', help='Constraint on total number of classes in union of label and unlabeled sets')
+    parser.add_argument('--num_total_samples', type=int, action='store', help='Constraint on total number of samples in union of label and unlabeled sets')
     
     parser.add_argument('--lb_prop', type=float, default=1.0, help='labeled sample proportion within target dataset')
     parser.add_argument('--include-labeled', action='store_true', help='include labeled-set data in unlabeled-set')
@@ -130,9 +131,9 @@ def main():
 
     # dataloader
     if opt.dataset == 'cifar100':
-        num_unseen_class = get_unseen_class(DATASET_CLASS[opt.dataset], opt.num_ood_class)
-        n_cls = DATASET_CLASS[opt.dataset] - num_unseen_class    
-        if opt.distill == 'crd':
+        num_id_class = DATASET_CLASS[opt.dataset] if opt.num_total_class is None \
+                else opt.num_total_class - opt.num_ood_class 
+        if opt.distill == 'crd':    # Condition on filtering supervised only KD methods
             model_t = get_teacher_name(opt.path_t)
             train_loader, _, val_loader, n_data = get_cifar100_dataloaders(batch_size=opt.batch_size,
                                                                            num_workers=opt.num_workers,
@@ -148,20 +149,28 @@ def main():
                                                                            include_labeled=opt.include_labeled, 
                                                                            split_seed=opt.split_seed)
         else:
-            train_loader, utrain_loader, val_loader, n_data = get_cifar100_dataloaders(batch_size=opt.batch_size,
-                                                                                       num_workers=opt.num_workers,
-                                                                                       is_instance=True,
-                                                                                       is_sample=False,
-                                                                                       ood=opt.ood, 
-                                                                                       num_ood_class=opt.num_ood_class, num_total_class=opt.num_total_class,
-                                                                                       lb_prop=opt.lb_prop, include_labeled=opt.include_labeled, 
-                                                                                       split_seed=opt.split_seed, class_split_seed=opt.split_seed)
+            #train_loader, utrain_loader, val_loader, n_data = \
+            #train_loader, utrain_loader, n_data = 
+            train_loader, utrain_loader = get_cifar100_dataloaders(batch_size=opt.batch_size,
+                                                                    num_workers=opt.num_workers,
+                                                                    is_instance=True,
+                                                                    is_sample=False,
+                                                                    ood=opt.ood, 
+                                                                    num_ood_class=opt.num_ood_class, num_total_class=num_id_class,
+                                                                    num_total_samples=opt.total_samples, 
+                                                                    lb_prop=opt.lb_prop, include_labeled=opt.include_labeled, 
+                                                                    split_seed=opt.split_seed, class_split_seed=opt.split_seed)
+            val_loader = get_cifar100_test(batch_size=opt.batch_size//2,
+                                            num_workers=opt.num_workers//2,
+                                            is_instance=True, is_sample=False,
+                                            num_classes=num_id_class,
+                                            split_seed=opt.split_seed)
     else:
         raise NotImplementedError(opt.dataset)
 
     # model
-    model_t = load_teacher(opt.path_t, n_cls)
-    model_s = model_dict[opt.model_s](num_classes=n_cls)
+    model_t = load_teacher(opt.path_t, num_id_class)   # TODO: Make teacher depending on split_seed
+    model_s = model_dict[opt.model_s](num_classes=num_id_class)
 
     data = torch.randn(2, 3, 32, 32)
     model_t.eval()
@@ -187,7 +196,7 @@ def main():
     elif opt.distill == 'crd':
         opt.s_dim = feat_s[-1].shape[1]
         opt.t_dim = feat_t[-1].shape[1]
-        opt.n_data = n_data
+        opt.n_data = len(train_loader.dataset)   #n_data
         criterion_kd = CRDLoss(opt)
         module_list.append(criterion_kd.embed_s)
         module_list.append(criterion_kd.embed_t)

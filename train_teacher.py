@@ -13,7 +13,7 @@ import torch.backends.cudnn as cudnn
 
 from models import model_dict
 
-from dataset.cifar100 import get_cifar100_dataloaders, get_unseen_class, DATASET_CLASS
+from dataset.cifar100 import get_cifar100_dataloaders, get_cifar100_test, DATASET_CLASS
 
 from helper.util import adjust_learning_rate, accuracy, AverageMeter
 from helper.loops import train_vanilla as train, validate
@@ -40,9 +40,8 @@ def parse_option():
     parser.add_argument('--lb_prop', type=float, default=1.0, help='labeled sample proportion within target dataset')
 
     # select unlabeled dataset
-    parser.add_argument('--ood', type=str, default='tin', choices=['tin', 'places', 'None'])
-    parser.add_argument('--num_ood_class', type=int, default=200, help='number of classes in the augment dataset')
-    parser.add_argument('--num_total_class', type=int, action='store', help='Constraint on total number of classes in label and unlabeled sets')
+    parser.add_argument('--num_classes', type=int, default=100, help='number of classes in the split dataset')
+    #parser.add_argument('--num_total_class', type=int, action='store', help='Constraint on total number of classes in label and unlabeled sets')
 
     # optimization
     parser.add_argument('--learning_rate', type=float, default=0.05, help='learning rate')
@@ -81,7 +80,7 @@ def parse_option():
         opt.lr_decay_epochs.append(int(it))
 
 
-    num_unseen_class = get_unseen_class(DATASET_CLASS[opt.dataset], opt.num_ood_class, num_total_class=opt.num_total_class)
+    #num_unseen_class = get_unseen_class(DATASET_CLASS[opt.dataset], opt.num_ood_class, num_total_class=opt.num_total_class)
     opt.model_name = '{}_{}_lb:{}_split:{}_uc:{}_lr:{}_decay:{}_trial:{}'.format(opt.model, opt.dataset, 
                                                                            opt.lb_prop, opt.split_seed, num_unseen_class, 
                                                                            opt.learning_rate, opt.weight_decay, opt.trial)
@@ -106,20 +105,24 @@ def main():
 
     # dataloader
     if opt.dataset == 'cifar100':
-        num_total_class = DATASET_CLASS[opt.dataset] + opt.num_ood_class if opt.num_total_class is None else opt.num_total_class
-        train_loader, _, val_loader, n_data = \
+        train_loader, _ = \
             get_cifar100_dataloaders(batch_size=opt.batch_size,
                                     num_workers=opt.num_workers,
                                     is_instance=True,
                                     is_sample=False,
-                                    ood=opt.ood, 
-                                    num_ood_class=opt.num_ood_class,
-                                    num_total_class=num_total_class, 
+                                    num_ood_class=0,
+                                    num_id_class=opt.num_classes, 
                                     lb_prop=opt.lb_prop, 
-                                    split_seed=opt.split_seed)
+                                    split_seed=opt.split_seed, 
+                                    class_split_seed=opt.class_split_seed)
+        val_loader = get_cifar100_test(batch_size=opt.batch_size//2,
+                                            num_workers=opt.num_workers//2,
+                                            is_instance=True, is_sample=False,
+                                            num_classes=opt.num_classes,
+                                            split_seed=opt.split_seed)
 
-        num_unseen_class = get_unseen_class(DATASET_CLASS[opt.dataset], opt.num_ood_class)
-        n_cls = DATASET_CLASS[opt.dataset] - num_unseen_class  #100
+        #num_unseen_class = get_unseen_class(DATASET_CLASS[opt.dataset], opt.num_ood_class)
+        n_cls = DATASET_CLASS[opt.dataset] - opt.num_classes  #100
     else:
         raise NotImplementedError(opt.dataset)
 
@@ -134,7 +137,7 @@ def main():
 
     criterion = nn.CrossEntropyLoss()
 
-    if torch.cuda.is_available() or torch.backends.mps.is_available():
+    if torch.cuda.is_available():
         model = model.cuda()
         criterion = criterion.cuda()
         cudnn.benchmark = True

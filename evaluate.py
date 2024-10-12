@@ -44,7 +44,7 @@ def parse_option():
     parser.add_argument('--split_seed', type=int, default=12345, help='random seed for reproducing dataset split')
 
     # select unlabeled dataset
-    parser.add_argument('--num_unseen_class', type=int, default=50, help='number of classes in the augment dataset')
+    parser.add_argument('--num_eval_classes', type=int, default=50, help='number of classes in the augment dataset')
     parser.add_argument('--lb_prop', type=float, default=1.0, help='labeled sample proportion within target dataset')
 
     # model
@@ -87,12 +87,13 @@ def main():
     test_loader, test_class_idx = get_cifar100_test(batch_size=opt.batch_size,
                                                         num_workers=opt.num_workers,
                                                         is_instance=True, is_sample=False,
-                                                        num_unseen_class=opt.num_unseen_class,
+                                                        num_classes=opt.num_eval_classes,
                                                         split_seed=opt.split_seed)
+    assert len(test_loader.dataset.classes) == opt.num_eval_classes, "Wrong number of class split"
     
     # Check model num classifier head; Prune head to match num test class(100 - num_unseen_class)
-    omitted_class = np.setdiff(test_loader.classes, num_model_class)
-    assert not any(omitted_class), "Classifier heads do contain all test classes"
+    unincluded_class = np.setdiff(test_loader.classes, num_model_class)
+    assert not any(unincluded_class), "Classifier heads do span all test classes"
 
     # TODO: Implement prune_head
     if test_loader.num_classes < num_model_class:     # Redundant classifier head exists
