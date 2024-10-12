@@ -121,14 +121,11 @@ def main():
                                             num_classes=opt.num_classes,
                                             split_seed=opt.split_seed)
 
-        #num_unseen_class = get_unseen_class(DATASET_CLASS[opt.dataset], opt.num_ood_class)
-        n_cls = DATASET_CLASS[opt.dataset] - opt.num_classes  #100
-        # TODO: Consider represent shrinkage in output-size as a mask
     else:
         raise NotImplementedError(opt.dataset)
 
     # model
-    model = model_dict[opt.model](num_classes=n_cls)
+    model = model_dict[opt.model](num_classes=opt.num_classes)
 
     # optimizer
     optimizer = optim.SGD(model.parameters(),
@@ -157,16 +154,16 @@ def main():
         time2 = time.time()
         print('epoch {}, total time {:.2f}'.format(epoch, time2 - time1))
 
-        logger.log_value('train_acc', train_acc, epoch)
-        logger.log_value('train_loss', train_loss, epoch)
+        logger.log_value('train/train_acc', train_acc, epoch)
+        logger.log_value('train/train_loss', train_loss, epoch)
 
         #test_acc, test_acc_top5, test_loss = validate(val_loader, model, criterion, opt)
         metric_dict, test_loss = validate(val_loader, model, criterion, opt)
         test_acc = metric_dict["acc1"]
 
-        logger.log_value('test_acc', test_acc, epoch)
+        logger.log_value('test/test_acc', test_acc, epoch)
         #logger.log_value('test_acc_top5', test_acc_top5, epoch)
-        logger.log_value('test_loss', test_loss, epoch)
+        logger.log_value('test/test_loss', test_loss, epoch)
 
         # save the best model
         if test_acc > best_acc:
@@ -175,6 +172,7 @@ def main():
                 'epoch': epoch,
                 'model': model.state_dict(),
                 'best_acc': best_acc,
+                'num_head': opt.num_classes,
                 'optimizer': optimizer.state_dict(),
             }
             save_file = os.path.join(opt.save_folder, '{}_best.pth'.format(opt.model))

@@ -22,7 +22,7 @@ from models import model_dict
 from models.util import ConvReg, LinearEmbed
 from models.util import Connector, Translator, Paraphraser
 from distiller_zoo.AIN import transfer_conv, statm_loss
-from dataset.cifar100 import get_cifar100_test, DATASET_CLASS
+from dataset.cifar100 import get_cifar100_test
 from helper.util import adjust_learning_rate
 
 from helper.loops import validate
@@ -77,10 +77,13 @@ def main():
     parent_path = opt.path.dirname(opt.path)
 
     # Loading model parameters
-    model_t, num_model_class = get_model_name(opt.path)
-    model = model_dict[model_t](num_classes=num_model_class)
-    model.load_state_dict(torch.load(opt.path)['model'])
-    assert model.fc.out_features == num_model_class, "Number of classifier heads does not match"
+    model_name, _ = get_model_name(opt.path)
+    model_dict = torch.load(opt.path)
+
+    num_model_head = model_dict["num_head"]
+    model = model_dict[model_name](num_classes=num_model_head)
+    model.load_state_dict(model_dict['model'])
+    assert model.fc.out_features == num_model_head, "Number of classifier heads does not match"
   
     # Setup test dataset
     test_loader = get_cifar100_test(batch_size=opt.batch_size,
@@ -90,20 +93,16 @@ def main():
                                     split_seed=opt.split_seed)
     assert len(test_loader.dataset.classes) == opt.num_eval_classes, "Wrong number of class split"
     
-    # Check model num classifier head; Prune head to match num test class(100 - num_unseen_class)
-
     eval_classes = test_loader.dataset.classes
-    if len(eval_classes) < DATASET_CLASS['cifar100']:     # Redundant classifier head exists
+    if len(eval_classes) > num_model_head:
+        assert False, "Cannot evaluate more classes than model support"
+
+    elif len(eval_classes) < num_model_head:     # Redundant classifier head exists
         eval_metrics = {"acc1": lambda y_hat, y: accuracy(y_hat, y, output_cls=eval_classes)}
     else:
         eval_metrics = {"acc1": accuracy}
-    """
-    eval_metrics = {
-        'accuracy': accuracy, 
-        'precision': precision, 
-        'recall': recall, 
-    }
-    """
+
+
     metric_vals = validate(test_loader, model, None, opt, metrics=eval_metrics)
 
     

@@ -334,6 +334,7 @@ def main():
             state = {
                 'epoch': epoch,
                 'model': model_s.state_dict(),
+                'num_head': num_id_class,
                 'best_acc': best_acc,
             }
             save_file = os.path.join(opt.save_folder, '{}_best.pth'.format(opt.model_s))
