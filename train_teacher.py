@@ -13,9 +13,9 @@ import torch.backends.cudnn as cudnn
 
 from models import model_dict
 
-from dataset.cifar100 import get_cifar100_dataloaders, get_cifar100_test, DATASET_CLASS
+from dataset.cifar100 import get_cifar100_dataloaders, get_cifar100_test
 
-from helper.util import adjust_learning_rate, accuracy, AverageMeter
+from helper.util import adjust_learning_rate
 from helper.loops import train_vanilla as train, validate
 
 
@@ -114,12 +114,11 @@ def main():
                                     num_id_class=opt.num_classes, 
                                     lb_prop=opt.lb_prop, 
                                     split_seed=opt.split_seed, 
-                                    class_split_seed=opt.class_split_seed)
+                                    class_split_seed=opt.split_seed)
         val_loader = get_cifar100_test(batch_size=opt.batch_size//2,
-                                            num_workers=opt.num_workers//2,
-                                            is_instance=True, is_sample=False,
-                                            num_classes=opt.num_classes,
-                                            split_seed=opt.split_seed)
+                                        num_workers=opt.num_workers//2,
+                                        num_classes=opt.num_classes,
+                                        split_seed=opt.split_seed)
 
     else:
         raise NotImplementedError(opt.dataset)

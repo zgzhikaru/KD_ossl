@@ -13,9 +13,9 @@ def get_model_name(model_path):
     """parse teacher name"""
     segments = model_path.split('/')[-2].split('_')
     if segments[0] != 'wrn':
-        return segments[0], segments[1] # TODO: Add config to corresponding position in the title; Otherwise, use a dict
+        return segments[0], segments[2] # TODO: Add config to corresponding position in the title; Otherwise, use a dict
     else:
-        return segments[0] + '_' + segments[1] + '_' + segments[2], segments[3]
+        return segments[0] + '_' + segments[1] + '_' + segments[2], segments[4]
 
 
 def load_model(model_path):

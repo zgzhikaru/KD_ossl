@@ -5,6 +5,7 @@ import numpy as np
 import torch.nn.functional as F
 
 
+is_sorted = lambda a: np.all(a[:-1] <= a[1:])
 
 def adjust_learning_rate(epoch, opt, optimizer):
     """Sets the learning rate to the initial LR decayed by decay rate every steep step"""
@@ -39,13 +40,11 @@ def accuracy(output, target, topk=(1,), output_cls=None):
         batch_size = target.size(0)
 
         if output_cls is not None: 
-            #reduced_output = output[:,output_cls]   # Mask-out non-existing class before computing accuracy
-            _, subset_pred = output[:,output_cls].topk(maxk, 1, True, True)
-            pred = output_cls[subset_pred]
+            # Mask-out non-existing class before computing accuracy
+            _, pred = output[:,output_cls].topk(maxk, 1, True, True)
         else:
             _, pred = output.topk(maxk, 1, True, True)
 
-        #_, pred = output.topk(maxk, 1, True, True)
         pred = pred.t()
         correct = pred.eq(target.view(1, -1).expand_as(pred))
 

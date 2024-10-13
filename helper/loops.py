@@ -23,7 +23,7 @@ def train_vanilla(epoch, train_loader, model, criterion, optimizer, opt):
         data_time.update(time.time() - end)
 
         input = input.float()
-        if torch.cuda.is_available() or torch.backends.mps.is_available():
+        if torch.cuda.is_available():
             input = input.cuda()
             target = target.cuda()
 
@@ -31,8 +31,8 @@ def train_vanilla(epoch, train_loader, model, criterion, optimizer, opt):
         output = model(input)
         loss = criterion(output, target)
 
-        acc1, acc5 = accuracy(output, target, topk=(1, 5))
         losses.update(loss.item(), input.size(0))
+        acc1, acc5 = accuracy(output, target, topk=(1, 5))
         top1.update(acc1[0], input.size(0))
         top5.update(acc5[0], input.size(0))
 
@@ -388,7 +388,7 @@ def validate(val_loader, model, criterion, opt, metrics={"acc1": accuracy}):
         end = time.time()
         #for idx, (input, target) in enumerate(val_loader):
         for idx, (input, target, _) in enumerate(val_loader):
-
+            batch_size = input.size(0)
             input = input.float()
             if torch.cuda.is_available():
                 input = input.cuda()
@@ -398,18 +398,36 @@ def validate(val_loader, model, criterion, opt, metrics={"acc1": accuracy}):
             output = model(input)
             if criterion is not None:
                 loss = criterion(output, target)
-                losses.update(loss.item(), input.size(0))
+                losses.update(loss.item(), batch_size)
 
             # measure accuracy and record loss
             #acc1, acc5 = accuracy(output, target, topk=(1, 5))
 
-            for metric in metrics:
+            for m in metrics:
                 #results = metric(output, target)
-                metric_avg[metric].update(metrics[metric](output, target))
+                res = metrics[m](output, target)
+                #print(res)
+                metric_avg[m].update(res[0].item(), batch_size)
 
             # measure elapsed time
             batch_time.update(time.time() - end)
             end = time.time()
+
+            if idx % opt.print_freq == 0:
+                msg =  ('Test: [{0}/{1}]\t' + \
+                        'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t').format(
+                            idx, len(val_loader), batch_time=batch_time)
+                if criterion is not None:
+                    msg += 'Loss {loss.val:.4f} ({loss.avg:.4f})\t'.format(loss=losses)
+                for m in metrics:
+                    msg += '{name} {metr.val:.3f} ({metr.avg:.3f})\t'.format(name=m, metr=metric_avg[m])
+                print(msg)
+
+        msg = 'VAL * '
+        for m in metrics:
+            msg += '{name} {val.avg:.3f}\t'.format(name=m, val=metric_avg[m])
+        print(msg)
+            
 
     return {metric: metric_avg[metric].avg for metric in metric_avg}, \
             losses.avg if criterion is not None else None
