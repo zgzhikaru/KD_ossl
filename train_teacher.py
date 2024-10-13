@@ -55,7 +55,7 @@ def parse_option():
     parser.add_argument('--momentum', type=float, default=0.9, help='momentum')
     
     # model
-    parser.add_argument('--model', type=str, default='resnet110',
+    parser.add_argument('--arch', type=str, default='resnet110',
                         choices=['resnet8', 'resnet14', 'resnet20', 'resnet32', 'resnet44', 'resnet56', 'resnet110',
                                  'resnet8x4', 'resnet32x4', 'wrn_16_1', 'wrn_16_2', 'wrn_40_1', 'wrn_40_2',
                                  'vgg8', 'vgg11', 'vgg13', 'vgg16', 'vgg19',
@@ -68,7 +68,7 @@ def parse_option():
     opt = parser.parse_args()
     
     # set different learning rate from these 4 models
-    if opt.model in ['MobileNetV2', 'ShuffleV1', 'ShuffleV2']:
+    if opt.arch in ['MobileNetV2', 'ShuffleV1', 'ShuffleV2']:
         opt.learning_rate = 0.01
 
     iterations = opt.lr_decay_epochs.split(',')
@@ -77,12 +77,12 @@ def parse_option():
         opt.lr_decay_epochs.append(int(it))
 
     method = 'supCE'
-    opt.model_name = 'M:{}_arch:{}_ID:{}_ic:{}_trial:{}'.format(method, opt.model,  
-                                                                opt.dataset, opt.id_class,
+    opt.model_name = 'M:{}_arch:{}_ID:{}_ic:{}_trial:{}'.format(method, opt.arch,  
+                                                                opt.dataset, opt.num_classes,
                                                                 opt.trial                                                                                
                                                                 )  
 
-    opt.model_path = os.path.join(opt.save_path, 'models', opt.model_name)
+    opt.model_path = os.path.join(opt.save_path, 'model', opt.model_name)
     os.makedirs(opt.model_path, exist_ok=True)
 
     opt.log_path = os.path.join(opt.save_path, 'log', opt.model_name)
@@ -110,15 +110,10 @@ def main():
     # dataloader
     if opt.dataset == 'cifar100':
         train_loader, _ = \
-            get_cifar100_dataloaders(batch_size=opt.batch_size,
-                                    num_workers=opt.num_workers,
-                                    is_instance=True,
-                                    is_sample=False,
-                                    num_ood_class=0,
-                                    num_id_class=opt.num_classes, 
-                                    lb_prop=opt.lb_prop, 
-                                    split_seed=opt.split_seed, 
-                                    class_split_seed=opt.split_seed)
+            get_cifar100_dataloaders(batch_size=opt.batch_size, num_workers=opt.num_workers,
+                                    num_id_class=opt.num_classes, num_ood_class=0,
+                                    samples_per_cls=opt.samples_per_cls, lb_prop=opt.lb_prop, 
+                                    split_seed=opt.split_seed, class_split_seed=opt.split_seed)
         val_loader = get_cifar100_test(batch_size=opt.batch_size//2,
                                         num_workers=opt.num_workers//2,
                                         num_classes=opt.num_classes,
@@ -128,7 +123,7 @@ def main():
         raise NotImplementedError(opt.dataset)
 
     # model
-    model = MODEL_DICT[opt.model](num_classes=opt.num_classes)
+    model = MODEL_DICT[opt.arch](num_classes=opt.num_classes)
 
     # optimizer
     optimizer = optim.SGD(model.parameters(),
@@ -169,14 +164,14 @@ def main():
             best_acc = test_acc
             state = {
                 'epoch': epoch,
-                'model': model.cpu().state_dict(),
-                'optimizer': optimizer.cpu().state_dict(),
-                'name': opt.model,
+                'model': model.state_dict(),
+                'optimizer': optimizer.state_dict(),
+                'name': opt.arch,
                 'num_head': opt.num_classes,
                 'split_seed': opt.split_seed,
                 'best_acc': best_acc,
             }
-            save_file = os.path.join(opt.model_path, '{}_best.pth'.format(opt.model))
+            save_file = os.path.join(opt.model_path, '{}_best.pth'.format(opt.arch))
             print('saving the best model!')
             torch.save(state, save_file)
 
@@ -185,14 +180,14 @@ def main():
             print('==> Saving...')
             state = {
                 'epoch': epoch,
-                'model': model.cpu().state_dict(),
-                'optimizer': optimizer.cpu().state_dict(),
-                'name': opt.model,
+                'model': model.state_dict(),
+                'optimizer': optimizer.state_dict(),
+                'name': opt.arch,
                 'num_head': opt.num_classes,
                 'split_seed': opt.split_seed,
                 'accuracy': test_acc,
             }
-            save_file = os.path.join(opt.save_folder, 'ckpt_epoch_{epoch}.pth'.format(epoch=epoch))
+            save_file = os.path.join(opt.model_path, 'ckpt_epoch_{epoch}.pth'.format(epoch=epoch))
             torch.save(state, save_file)
 
         msg = "Epoch %d test_acc %.3f, best_acc %.3f" % (epoch, test_acc, best_acc)
@@ -202,13 +197,13 @@ def main():
     print('best accuracy:', best_acc)
     state = {
         'opt': opt,
-        'model': model.cpu().state_dict(),
-        'optimizer': optimizer.cpu().state_dict(),
-        'name': opt.model,
+        'model': model.state_dict(),
+        'optimizer': optimizer.state_dict(),
+        'name': opt.arch,
         'num_head': opt.num_classes,
         'split_seed': opt.split_seed,
     }
-    save_file = os.path.join(opt.model_path, '{}_last.pth'.format(opt.model))
+    save_file = os.path.join(opt.model_path, '{}_last.pth'.format(opt.arch))
     torch.save(state, save_file)
 
 

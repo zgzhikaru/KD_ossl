@@ -34,11 +34,12 @@ def parse_option():
     parser.add_argument('--split_seed', type=int, default=12345, help='random seed for reproducing test dataset split')
 
     # select unlabeled dataset
-    parser.add_argument('--num_classes', type=int, default=100, help='number of classes in the augment dataset')
+    parser.add_argument('--num_classes', type=int, default=DATASET_CLASS['cifar100'], help='number of classes in the augment dataset')
     parser.add_argument('--lb_prop', type=float, default=1.0, help='labeled sample proportion within target dataset')
 
     # model
-    parser.add_argument('--path', type=str, required=True, help='model snapshot')
+    parser.add_argument('--model_path', type=str, required=True, help='model snapshot')
+    parser.add_argument('--out_dir', type=str, default=None, help='output save path')
 
     opt = parser.parse_args()
 
@@ -52,10 +53,10 @@ def main():
     num_full_class=DATASET_CLASS[opt.dataset]
     
     # Collect model attributes
-    assert os.path.exists(opt.path), "Model path does not exists"
-    parent_path = os.path.dirname(opt.path)
+    assert os.path.exists(opt.model_path), "Model path does not exists"
+    out_dir = os.path.dirname(opt.model_path)
 
-    state_dict = torch.load(opt.path)
+    state_dict = torch.load(opt.model_path)
     model_name, num_model_head = state_dict["name"], state_dict["num_head"]
     model_split_seed = state_dict["split_seed"]
 
@@ -87,7 +88,7 @@ def main():
 
 
     # Load model parameters
-    model = load_model(opt.path)
+    model = load_model(opt.model_path)
     assert model.fc.out_features == num_model_head, "Number of classifier heads does not match"
   
     if torch.cuda.is_available():
@@ -121,7 +122,9 @@ def main():
     
     print("Test top-1 accuracy: ", metric_vals["acc1"])
 
-    save_name = os.path.join(parent_path, "evaluation.json")
+    if opt.out_dir is not None and os.path.exists(opt.out_dir):
+        out_dir = opt.out_dir
+    save_name = os.path.join(out_dir, "evaluation_cls{}.json".format(opt.num_classes))
     with open(save_name, "w") as outfile: 
         json.dump(metric_vals, outfile)
 

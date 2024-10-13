@@ -52,7 +52,7 @@ def parse_option():
   
     # select unlabeled dataset
     parser.add_argument('--ood', type=str, default='tin', choices=['tin', 'places', 'None'], help='The augment Out-of-distribution dataset')
-    parser.add_argument('--num_ood_cls', type=int, default=200, help='number of classes in the augment dataset')
+    parser.add_argument('--num_ood_class', type=int, default=200, help='number of classes in the augment dataset')
 
     parser.add_argument('--samples_per_cls', type=int, action='store', help='Number of samples per class in all datasets')
     parser.add_argument('--lb_prop', type=float, default=1.0, help='labeled sample proportion within target dataset')
@@ -68,7 +68,7 @@ def parse_option():
     parser.add_argument('--momentum', type=float, default=0.9, help='momentum')
 
     # model
-    parser.add_argument('--model', type=str, default='wrn_40_1',
+    parser.add_argument('--arch', type=str, default='wrn_40_1',
                         choices=['resnet8x4', 'wrn_40_1',  'ShuffleV1'], help="Student model architecture")
     parser.add_argument('--tc_path', type=str, required=True, help='path to the pretrained teacher model parameters')
     parser.add_argument('--save_path', type=str, default="results/student/", help='path to the pretrained teacher model parameters')
@@ -99,7 +99,7 @@ def parse_option():
     opt = parser.parse_args()
 
     # set different learning rate from these 4 models
-    if opt.model in ['MobileNetV2', 'ShuffleV1', 'ShuffleV2']:
+    if opt.arch in ['MobileNetV2', 'ShuffleV1', 'ShuffleV2']:
         opt.learning_rate = 0.01
 
     iterations = opt.lr_decay_epochs.split(',')
@@ -109,7 +109,7 @@ def parse_option():
 
 
     # Load attributes from teacher model file
-    state_dict = torch.load(opt.path)
+    state_dict = torch.load(opt.tc_path)
     teacher_name, num_tc_head = state_dict["name"], state_dict["num_head"]
     model_split_seed = state_dict["split_seed"]
 
@@ -119,14 +119,14 @@ def parse_option():
 
     # Initialize saving directories
     #num_total_class = opt.num_classes + opt.num_ood_cls
-    opt.model_name = 'M:{}_T:{}_arch:{}_ID:{}_ic:{}_OOD:{}_oc:{}_smp:{}_lb:{}_split:{}_trial:{}'.format(opt.distill, opt.model_s, teacher_name,  
+    opt.model_name = 'M:{}_T:{}_arch:{}_ID:{}_ic:{}_OOD:{}_oc:{}_smp:{}_lb:{}_split:{}_trial:{}'.format(opt.distill, opt.arch, teacher_name,  
                                                                                   opt.dataset, opt.num_classes,
-                                                                                  opt.ood, opt.num_ood_cls, 
-                                                                                  opt.sample_per_cls, opt.lb_prop,
+                                                                                  opt.ood, opt.num_ood_class, 
+                                                                                  opt.samples_per_cls, opt.lb_prop,
                                                                                   opt.split_seed, opt.trial                                                                                 
                                                                                   )
     # set the path
-    opt.model_path = os.path.join(opt.save_path, 'models', opt.model_name)
+    opt.model_path = os.path.join(opt.save_path, 'model', opt.model_name)
     os.makedirs(opt.model_path, exist_ok=True)
 
     opt.log_path = os.path.join(opt.save_path, 'log', opt.model_name)
@@ -169,7 +169,7 @@ def main():
 
     # model
     model_t = load_model(opt.tc_path)
-    model_s = MODEL_DICT[opt.model](num_classes=opt.num_classes)
+    model_s = MODEL_DICT[opt.arch](num_classes=opt.num_classes)
 
     data = torch.randn(2, 3, 32, 32)
     model_t.eval()
@@ -332,14 +332,14 @@ def main():
             best_acc = test_acc
             state = {
                 'epoch': epoch,
-                'model': model_s.cpu().state_dict(),
-                'optimizer': optimizer.cpu().state_dict(),
-                'name': opt.model, 
+                'model': model_s.state_dict(),
+                'optimizer': optimizer.state_dict(),
+                'name': opt.arch, 
                 'num_head': opt.num_classes,
                 'split_seed': opt.split_seed,
                 'best_acc': best_acc,
             }
-            save_file = os.path.join(opt.model_path, '{}_best.pth'.format(opt.model))
+            save_file = os.path.join(opt.model_path, '{}_best.pth'.format(opt.arch))
             print('saving the best model!')
             torch.save(state, save_file)
 
@@ -349,14 +349,14 @@ def main():
             print('==> Saving...')
             state = {
                 'epoch': epoch,
-                'model': model_s.cpu().state_dict(),
-                'optimizer': optimizer.cpu().state_dict(),
-                'name': opt.model, 
+                'model': model_s.state_dict(),
+                'optimizer': optimizer.state_dict(),
+                'name': opt.arch, 
                 'num_head': opt.num_classes,
                 'split_seed': opt.split_seed,
                 'accuracy': test_acc,
             }
-            save_file = os.path.join(opt.save_folder, 'ckpt_epoch_{epoch}.pth'.format(epoch=epoch))
+            save_file = os.path.join(opt.model_path, 'ckpt_epoch_{epoch}.pth'.format(epoch=epoch))
             torch.save(state, save_file)
 
         msg = "Epoch %d test_acc %.3f, best_acc %.3f" % (epoch, test_acc, best_acc)
@@ -366,9 +366,9 @@ def main():
     print('best accuracy:', best_acc)
     state = {
         'opt': opt,
-        'model': model_s.cpu().state_dict(),
-        'optimizer': optimizer.cpu().state_dict(),
-        'name': opt.model, 
+        'model': model_s.state_dict(),
+        'optimizer': optimizer.state_dict(),
+        'name': opt.arch, 
         'num_head': opt.num_classes,
         'split_seed': opt.split_seed,
     }

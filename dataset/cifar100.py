@@ -40,24 +40,24 @@ class TinInstance(torch.utils.data.Dataset):
         self.transform = transform
         data_path = '%s/tinyImageNet200/%s/' % (data_folder, 'train')
 
-        labels = sorted([basename(normpath(clss)) for clss in glob(data_path + '*/')])
+        self.classes = sorted([basename(normpath(clss)) for clss in glob(data_path + '*/')])
         #total_cls = len(labels)
         #subset = np.clip(subset, a_min=0, a_max=total_cls)
 
         #self.img_list = [f for clss in labels[:subset] 
-        self.img_list = [f for clss in labels
+        self.img_list = [f for clss in self.classes
                          for f in glob(data_path + "/%s/images/*.JPEG" % (clss))]
         #self.img_list = [f for f in glob(data_path + "**/*.JPEG", recursive=True)]
         self.img_list.sort()
 
-        #self.num_classes = len(self.labels)
+        self.num_classes = len(self.classes)
         self.name = 'TIN'
         print("ood dataset size: ", len(self.img_list))
         
 
     def set_index(self, indexes=None):
         if indexes is not None:
-            self.img_list = self.img_list[indexes]
+            self.img_list = np.array(self.img_list)[indexes]    #self.img_list[indexes]
         else:
             self.img_list = self.img_list
 
@@ -103,6 +103,8 @@ class CIFAR100Instance(datasets.CIFAR100):
             self.classes = np.unique(real_targets)
             self.num_classes = len(self.classes)
 
+            print("real_targets sorted", is_sorted(real_targets))
+            print("real_targets", real_targets)
 
             assert is_sorted(real_targets) and is_sorted(self.classes), "Class idx need to be in sorted order"
             cls_pos = np.searchsorted(real_targets, self.classes)
@@ -336,7 +338,6 @@ def get_class_idx(num_classes, num_full_class, split_seed):
 def x_u_split(base_dataset, lb_prop=1.0, include_labeled=True, 
               class_idx=None, include_unseen=False, 
               instance_prop=1.0, min_size=0, rng=None):
-    
     n_data = len(base_dataset)
     num_full_classes = base_dataset.num_classes 
     full_label_per_class = n_data // num_full_classes
@@ -344,20 +345,9 @@ def x_u_split(base_dataset, lb_prop=1.0, include_labeled=True,
     lb_prop = np.clip(lb_prop, 0, 1.0)
     instance_prop = np.clip(instance_prop, 0, lb_prop)
 
-    unlabeled_idx = np.arange(n_data) 
-    #if not num_unseen_class > 0 and not lb_prop < 1.0 and not num_unseen_class > 0:  # No split requested
-    if not any([class_idx is not None, 
-                instance_prop < 1.0, 
-                lb_prop < 1.0]):  # No split requested
-        labeled_idx = np.arange(n_data)
-        #if not include_labeled:
-        return labeled_idx, unlabeled_idx if include_labeled else None
-    
-
     if class_idx is not None:
         assert np.all(class_idx < num_full_classes) and np.all(class_idx >= 0)
         assert len(np.unique(class_idx)) == len(class_idx), "Duplicate label involved"
-
 
     #label_per_class = int(np.ceil(lb_prop * full_label_per_class))
     instance_per_class = int(np.ceil(instance_prop * full_label_per_class))
@@ -384,18 +374,24 @@ def x_u_split(base_dataset, lb_prop=1.0, include_labeled=True,
         labeled_idx.append(idx_l)
         unlabeled_idx.append(idx_u)
 
-    labeled_idx = np.stack(labeled_idx)[class_idx].flatten()
-    if not lb_prop < 1.0 and not include_labeled:   # Unlabeled set does not exist at all
-        return labeled_idx, None
-    if include_unseen:
-        unlabeled_idx = np.stack(unlabeled_idx).flatten()
-    else:
-        unlabeled_idx = np.stack(unlabeled_idx)[class_idx].flatten() 
+    labeled_idx = np.stack(labeled_idx)
+    if class_idx is not None:
+        labeled_idx = labeled_idx[class_idx]
+    labeled_idx = labeled_idx.flatten()
 
+    if not (lb_prop < 1.0 or include_labeled) and class_idx is None:   
+        # Unlabeled set does not exist at all
+        return labeled_idx, None
     
-    assert len(labeled_idx) == label_per_class * len(class_idx) \
-        and (len(labeled_idx) + len(unlabeled_idx) == instance_per_class * len(class_idx) or include_labeled) \
-        and (len(unlabeled_idx) == instance_per_class * len(class_idx) or not include_labeled)
+    unlabeled_idx = np.stack(unlabeled_idx)
+    if not (class_idx is None or include_unseen):
+        unlabeled_idx = unlabeled_idx[class_idx]
+    unlabeled_idx = unlabeled_idx.flatten() 
+
+    num_cls = num_full_classes if class_idx is None else len(class_idx)
+    assert len(labeled_idx) == label_per_class * num_cls \
+        and (len(labeled_idx) + len(unlabeled_idx) == instance_per_class * num_cls or include_labeled) \
+        and (len(unlabeled_idx) == instance_per_class * num_cls or not include_labeled)
 
     assert (len(labeled_idx) + len(unlabeled_idx) == n_data or not include_unseen) 
 
@@ -406,7 +402,7 @@ def x_u_split(base_dataset, lb_prop=1.0, include_labeled=True,
     if len(unlabeled_idx) < min_size:
         unlabeled_idx = np.concatenate([unlabeled_idx for _ in range(int(np.ceil(min_size / len(unlabeled_idx))))])
     #np.random.shuffle(labeled_idx)
-    print("Num seen class: ", len(class_idx))
+    print("Num seen class: ", num_cls)
     print("Num labeled: ", len(labeled_idx))
     print("Num unlabeled: ", 0 if unlabeled_idx is None else len(unlabeled_idx))
 
@@ -422,24 +418,27 @@ def split_ood_set(base_ood_set, num_subset_cls=200, instance_prop=1.0,
     assert num_subset_cls > 0
     cls_idx = get_class_idx(num_subset_cls, num_full_cls, class_split_seed)
 
-    full_samples_per_cls = len(base_ood_set) // len(base_ood_set.labels)
+    # NOTE: Assuming balanced class samples
+    full_samples_per_cls = len(base_ood_set) // base_ood_set.num_classes
     instance_prop = np.clip(instance_prop, 0.0, 1.0)
-    samples_per_cls = np.ceil(instance_prop * full_samples_per_cls)
-
+    samples_per_cls = int(np.ceil(instance_prop * full_samples_per_cls))
+    # TODO: Support manually specified samples_per_cls
 
     if instance_split_seed is not None:
         rng = np.random.default_rng(instance_split_seed)
 
     all_sample_idx = []
-    for cls in base_ood_set.labels:
-        sample_idx = np.arange(full_samples_per_cls)
+    for cls_id in range(base_ood_set.num_classes):  # TODO: Consider store & get samples for each cls from datafolder
+        sample_idx = np.arange(full_samples_per_cls) + cls_id * samples_per_cls
         if instance_split_seed is not None:
             rng.shuffle(sample_idx)
         sample_idx = sample_idx[:samples_per_cls]
         all_sample_idx.append(sample_idx)
 
-    all_sample_idx = np.stack(all_sample_idx)[cls_idx].flatten()
-    return all_sample_idx
+    all_sample_idx = np.stack(all_sample_idx)
+    if cls_idx is not None:
+        all_sample_idx = all_sample_idx[cls_idx]
+    return all_sample_idx.flatten()
 
 
 def get_cifar100_test(batch_size=64, num_workers=4, 
@@ -499,14 +498,15 @@ def get_cifar100_dataloaders(batch_size=128, num_workers=8,
     ])
 
 
-    base_dataset = datasets.CIFAR100(root=data_folder + '/cifar/',
-                                      download=True,
-                                      train=True,
-                                      transform=train_transform)
+    base_dataset = CIFAR100Instance(root=data_folder + '/cifar/',
+                                     download=True,
+                                     train=True,
+                                     transform=train_transform)
 
+    num_full_class = DATASET_CLASS['cifar100']
     # Fully supervied training
     if not lb_prop < 1.0 and not include_labeled \
-        and not num_ood_class > 0 and not num_id_class < DATASET_CLASS['cifar100']:
+        and not num_ood_class > 0 and not num_id_class < num_full_class:
         train_loader = DataLoader(base_dataset,
                             batch_size=batch_size,
                             shuffle=True,
@@ -516,7 +516,8 @@ def get_cifar100_dataloaders(batch_size=128, num_workers=8,
 
 
     # Split test set given requested num_id_class
-    class_idx = get_class_idx(num_id_class, num_full_class=DATASET_CLASS['cifar100'], split_seed=class_split_seed)
+    class_idx = get_class_idx(num_id_class, num_full_class=num_full_class, split_seed=class_split_seed) \
+            if num_id_class < num_full_class else None
 
     full_samples_per_cls = len(base_dataset) // base_dataset.num_classes
     if samples_per_cls is None:  
@@ -574,7 +575,7 @@ def get_cifar100_dataloaders(batch_size=128, num_workers=8,
             data_folder, transform=utrain_transform)    #, subset=num_ood_class)
         # Requested dataset splitting
         sample_idx = split_ood_set(ood_set, num_subset_cls=num_ood_class, instance_prop=instance_prop,
-                                    split_seed=split_seed, class_split_seed=class_split_seed)
+                                    instance_split_seed=split_seed, class_split_seed=class_split_seed)
         ood_set.set_index(sample_idx)
 
     elif ood == 'places':
