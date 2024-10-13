@@ -4,20 +4,26 @@ import os
 import argparse
 import socket
 import time
+import logging
+import json
 
-import tensorboard_logger as tb_logger
 import torch
 import torch.optim as optim
 import torch.nn as nn
 import torch.backends.cudnn as cudnn
+from torch.utils.tensorboard import SummaryWriter
 
-from models import model_dict
+from models import model_dict as MODEL_DICT
 
 from dataset.cifar100 import get_cifar100_dataloaders, get_cifar100_test
-
 from helper.util import adjust_learning_rate
 from helper.loops import train_vanilla as train, validate
+from utils.utils import init_logging
 
+"""
+Fully Supervised training for a single architecture on single source of labeled data.
+Can be used for obtaining either a pretrained teacher or a student baseline.
+"""
 
 def parse_option():
 
@@ -27,7 +33,7 @@ def parse_option():
 
     parser.add_argument('--print_freq', type=int, default=100, help='print frequency')
     parser.add_argument('--tb_freq', type=int, default=500, help='tb frequency')
-    parser.add_argument('--save_freq', type=int, default=80, help='save frequency')
+    parser.add_argument('--save_freq', type=int, default=120, help='save frequency')
     
     parser.add_argument('--batch_size', type=int, default=64, help='batch_size')
     parser.add_argument('--num_workers', type=int, default=8, help='num of workers to use')
@@ -35,13 +41,11 @@ def parse_option():
 
     # labeled dataset
     parser.add_argument('--dataset', type=str, default='cifar100', choices=['cifar100'], help='dataset')
-    parser.add_argument('--split_seed', type=int, default=12345, help='random seed for reproducing dataset split')
-
-    parser.add_argument('--lb_prop', type=float, default=1.0, help='labeled sample proportion within target dataset')
-
-    # select unlabeled dataset
     parser.add_argument('--num_classes', type=int, default=100, help='number of classes in the split dataset')
-    #parser.add_argument('--num_total_class', type=int, action='store', help='Constraint on total number of classes in label and unlabeled sets')
+    
+    parser.add_argument('--samples_per_cls', type=int, action='store', help='Number of samples per class in all datasets')
+    parser.add_argument('--lb_prop', type=float, default=1.0, help='labeled sample proportion within target dataset')
+    parser.add_argument('--split_seed', type=int, default=12345, help='random seed for reproducing dataset split')
 
     # optimization
     parser.add_argument('--learning_rate', type=float, default=0.05, help='learning rate')
@@ -49,13 +53,14 @@ def parse_option():
     parser.add_argument('--lr_decay_rate', type=float, default=0.1, help='decay rate for learning rate')
     parser.add_argument('--weight_decay', type=float, default=5e-4, help='weight decay')
     parser.add_argument('--momentum', type=float, default=0.9, help='momentum')
-
+    
     # model
     parser.add_argument('--model', type=str, default='resnet110',
                         choices=['resnet8', 'resnet14', 'resnet20', 'resnet32', 'resnet44', 'resnet56', 'resnet110',
                                  'resnet8x4', 'resnet32x4', 'wrn_16_1', 'wrn_16_2', 'wrn_40_1', 'wrn_40_2',
                                  'vgg8', 'vgg11', 'vgg13', 'vgg16', 'vgg19',
                                  'MobileNetV2', 'ShuffleV1', 'ShuffleV2', ])
+    parser.add_argument('--save_path', type=str, default='results/teacher/', help='Saving path of result model')
     
  
     parser.add_argument('-t', '--trial', type=int, default=0, help='the experiment id')
@@ -66,42 +71,41 @@ def parse_option():
     if opt.model in ['MobileNetV2', 'ShuffleV1', 'ShuffleV2']:
         opt.learning_rate = 0.01
 
-    # set the path according to the environment
-    if hostname.startswith('visiongpu'):
-        opt.model_path = '/path/to/my/model'
-        opt.tb_path = '/path/to/my/tensorboard'
-    else:
-        opt.model_path = './save/models'
-        opt.tb_path = './Results/tensorboard'
-
     iterations = opt.lr_decay_epochs.split(',')
     opt.lr_decay_epochs = list([])
     for it in iterations:
         opt.lr_decay_epochs.append(int(it))
 
+    method = 'supCE'
+    opt.model_name = 'M:{}_arch:{}_ID:{}_ic:{}_trial:{}'.format(method, opt.model,  
+                                                                opt.dataset, opt.id_class,
+                                                                opt.trial                                                                                
+                                                                )  
 
-    #num_unseen_class = get_unseen_class(DATASET_CLASS[opt.dataset], opt.num_ood_class, num_total_class=opt.num_total_class)
-    opt.model_name = '{}_{}_c:{}_lb:{}_split:{}_lr:{}_decay:{}_trial:{}'.format(opt.model, opt.dataset, 
-                                                                                opt.num_classes, opt.lb_prop, opt.split_seed, 
-                                                                           opt.learning_rate, opt.weight_decay, opt.trial)
-    
-    opt.save_folder = os.path.join(opt.model_path, opt.model_name)
-    if not os.path.isdir(opt.save_folder):
-        os.makedirs(opt.save_folder)
+    opt.model_path = os.path.join(opt.save_path, 'models', opt.model_name)
+    os.makedirs(opt.model_path, exist_ok=True)
 
-    opt.tb_folder = os.path.join(opt.tb_path, opt.model_name)
-    #opt.tb_folder = os.path.join(opt.tb_path, opt.model_name)
-    #if not os.path.isdir(opt.tb_folder):
-    #    os.makedirs(opt.tb_folder)
+    opt.log_path = os.path.join(opt.save_path, 'log', opt.model_name)
+    os.makedirs(opt.log_path, exist_ok=True)
 
+    init_logging(log_root=logging.getLogger(), models_root=opt.log_path)
+
+    # Save configuration in logging folder
+    config_name = os.path.join(opt.log_path, 'config.json')
+    with open(config_name, "w") as outfile: 
+        json.dump(vars(opt), outfile)
+
+    opt.tb_path = os.path.join(opt.save_path, 'tensorboard', opt.model_name)
+    os.makedirs(opt.tb_path, exist_ok=True)
 
     return opt
 
 
 def main():
     best_acc = 0
-
     opt = parse_option()
+
+    logger = SummaryWriter(opt.tb_path) 
 
     # dataloader
     if opt.dataset == 'cifar100':
@@ -124,7 +128,7 @@ def main():
         raise NotImplementedError(opt.dataset)
 
     # model
-    model = model_dict[opt.model](num_classes=opt.num_classes)
+    model = MODEL_DICT[opt.model](num_classes=opt.num_classes)
 
     # optimizer
     optimizer = optim.SGD(model.parameters(),
@@ -139,8 +143,6 @@ def main():
         criterion = criterion.cuda()
         cudnn.benchmark = True
 
-    # tensorboard
-    logger = tb_logger.Logger(logdir=opt.tb_folder, flush_secs=2)
 
     # routine
     for epoch in range(1, opt.epochs + 1):
@@ -153,28 +155,28 @@ def main():
         time2 = time.time()
         print('epoch {}, total time {:.2f}'.format(epoch, time2 - time1))
 
-        logger.log_value('train/train_acc', train_acc, epoch)
-        logger.log_value('train/train_loss', train_loss, epoch)
-
         #test_acc, test_acc_top5, test_loss = validate(val_loader, model, criterion, opt)
         metric_dict, test_loss = validate(val_loader, model, criterion, opt)
         test_acc = metric_dict["acc1"]
 
-        logger.log_value('test/test_acc', test_acc, epoch)
-        #logger.log_value('test_acc_top5', test_acc_top5, epoch)
-        logger.log_value('test/test_loss', test_loss, epoch)
+        logger.add_scalar('train/train_acc', train_acc, epoch)
+        logger.add_scalar('train/train_loss', train_loss, epoch)
+        logger.add_scalar('test/test_acc', test_acc, epoch)
+        logger.add_scalar('test/test_loss', test_loss, epoch)
 
         # save the best model
         if test_acc > best_acc:
             best_acc = test_acc
             state = {
                 'epoch': epoch,
-                'model': model.state_dict(),
-                'best_acc': best_acc,
+                'model': model.cpu().state_dict(),
+                'optimizer': optimizer.cpu().state_dict(),
+                'name': opt.model,
                 'num_head': opt.num_classes,
-                'optimizer': optimizer.state_dict(),
+                'split_seed': opt.split_seed,
+                'best_acc': best_acc,
             }
-            save_file = os.path.join(opt.save_folder, '{}_best.pth'.format(opt.model))
+            save_file = os.path.join(opt.model_path, '{}_best.pth'.format(opt.model))
             print('saving the best model!')
             torch.save(state, save_file)
 
@@ -183,24 +185,30 @@ def main():
             print('==> Saving...')
             state = {
                 'epoch': epoch,
-                'model': model.state_dict(),
+                'model': model.cpu().state_dict(),
+                'optimizer': optimizer.cpu().state_dict(),
+                'name': opt.model,
+                'num_head': opt.num_classes,
+                'split_seed': opt.split_seed,
                 'accuracy': test_acc,
-                'optimizer': optimizer.state_dict(),
             }
             save_file = os.path.join(opt.save_folder, 'ckpt_epoch_{epoch}.pth'.format(epoch=epoch))
             torch.save(state, save_file)
 
-    # This best accuracy is only for printing purpose.
-    # The results reported in the paper/README is from the last epoch.
-    print('best accuracy:', best_acc)
+        msg = "Epoch %d test_acc %.3f, best_acc %.3f" % (epoch, test_acc, best_acc)
+        logging.info(msg)
 
     # save model
+    print('best accuracy:', best_acc)
     state = {
         'opt': opt,
-        'model': model.state_dict(),
-        'optimizer': optimizer.state_dict(),
+        'model': model.cpu().state_dict(),
+        'optimizer': optimizer.cpu().state_dict(),
+        'name': opt.model,
+        'num_head': opt.num_classes,
+        'split_seed': opt.split_seed,
     }
-    save_file = os.path.join(opt.save_folder, '{}_last.pth'.format(opt.model))
+    save_file = os.path.join(opt.model_path, '{}_last.pth'.format(opt.model))
     torch.save(state, save_file)
 
 

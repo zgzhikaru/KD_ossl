@@ -8,6 +8,7 @@ import os
 import argparse
 import time
 import logging
+import json
 
 import torch
 import torch.optim as optim
@@ -15,31 +16,30 @@ import torch.nn as nn
 import torch.backends.cudnn as cudnn
 from torch.utils.tensorboard import SummaryWriter
 
-from models import model_dict
+from models import model_dict as MODEL_DICT
 from models.util import ConvReg, LinearEmbed
 from models.util import Connector, Translator, Paraphraser
 from distiller_zoo.AIN import transfer_conv, statm_loss
+
 from dataset.cifar100 import get_cifar100_dataloaders, get_cifar100_test, DATASET_CLASS
 from helper.util import adjust_learning_rate
 from distiller_zoo import DistillKL, HintLoss, Attention, Similarity, Correlation, VIDLoss, RKDLoss
 from distiller_zoo import PKT, ABLoss, FactorTransfer, KDSVD, FSP, NSTLoss,CRDLoss
 
-from helper.loops import train_distill as train_bl
 from helper.loops import train_ssldistill as train_ssl
-from helper.loops import train_ssldistill2 as train_ssl2
 
 from helper.loops import validate
 from helper.pretrain import init
-from utils.utils import get_teacher_name, load_teacher, init_logging
+from utils.utils import init_logging, load_model
 
 
 def parse_option():
 
     parser = argparse.ArgumentParser('argument for training')
-    parser.add_argument('--v2', action='store_true',help='seperate batch or not')
+    
     parser.add_argument('--print_freq', type=int, default=100, help='print frequency')
     parser.add_argument('--tb_freq', type=int, default=500, help='tb frequency')
-    parser.add_argument('--save_freq', type=int, default=80, help='save frequency')
+    parser.add_argument('--save_freq', type=int, default=120, help='save frequency')
     
     parser.add_argument('--batch_size', type=int, default=64, help='batch_size')
     parser.add_argument('--num_workers', type=int, default=8, help='num of workers to use')
@@ -47,17 +47,18 @@ def parse_option():
     parser.add_argument('--init_epochs', type=int, default=30, help='init training for two-stage methods')
 
     # labeled dataset
-    parser.add_argument('--dataset', type=str, default='cifar100', choices=['cifar100'], help='dataset')
+    parser.add_argument('--dataset', type=str, default='cifar100', choices=['cifar100'], help='Target dataset')
+    parser.add_argument('--num_classes', type=int, default=200, help='number of classes in the target dataset')
+  
+    # select unlabeled dataset
+    parser.add_argument('--ood', type=str, default='tin', choices=['tin', 'places', 'None'], help='The augment Out-of-distribution dataset')
+    parser.add_argument('--num_ood_cls', type=int, default=200, help='number of classes in the augment dataset')
+
+    parser.add_argument('--samples_per_cls', type=int, action='store', help='Number of samples per class in all datasets')
+    parser.add_argument('--lb_prop', type=float, default=1.0, help='labeled sample proportion within target dataset')
     parser.add_argument('--split_seed', type=int, default=12345, help='random seed for reproducing dataset split')
 
-    # select unlabeled dataset
-    parser.add_argument('--ood', type=str, default='tin', choices=['tin', 'places', 'None'])
-    parser.add_argument('--num_ood_class', type=int, default=200, help='number of classes in the augment dataset')
-    parser.add_argument('--num_total_class', type=int, action='store', help='Constraint on total number of classes in union of label and unlabeled sets')
-    parser.add_argument('--num_total_samples', type=int, action='store', help='Constraint on total number of samples in union of label and unlabeled sets')
-    
-    parser.add_argument('--lb_prop', type=float, default=1.0, help='labeled sample proportion within target dataset')
-    parser.add_argument('--include-labeled', action='store_true', help='include labeled-set data in unlabeled-set')
+    parser.add_argument('--include-labeled', default=True, help='include labeled-set data into unlabeled-set')
 
     # optimization
     parser.add_argument('--learning_rate', type=float, default=0.05, help='learning rate')
@@ -67,9 +68,11 @@ def parse_option():
     parser.add_argument('--momentum', type=float, default=0.9, help='momentum')
 
     # model
-    parser.add_argument('--model_s', type=str, default='wrn_40_1',
-                        choices=['resnet8x4', 'wrn_40_1',  'ShuffleV1'])
-    parser.add_argument('--path_t', type=str, default=None, help='teacher model snapshot')
+    parser.add_argument('--model', type=str, default='wrn_40_1',
+                        choices=['resnet8x4', 'wrn_40_1',  'ShuffleV1'], help="Student model architecture")
+    parser.add_argument('--tc_path', type=str, required=True, help='path to the pretrained teacher model parameters')
+    parser.add_argument('--save_path', type=str, default="results/student/", help='path to the pretrained teacher model parameters')
+
 
     # distillation
     parser.add_argument('--distill', type=str, default='kd')
@@ -79,7 +82,7 @@ def parse_option():
     parser.add_argument('-b', '--beta', type=float, default=None, help='weight balance for other losses')
 
     # KL distillation
-    parser.add_argument('--kd_T', type=float, default=4, help='temperature for KD distillation')
+    parser.add_argument('--temp', type=float, default=4, help='temperature for KD distillation')
 
     # NCE distillation
     parser.add_argument('--feat_dim', default=128, type=int, help='feature dimension')
@@ -91,81 +94,82 @@ def parse_option():
     # hint layer
     parser.add_argument('--hint_layer', default=2, type=int, choices=[0, 1, 2, 3, 4])
 
+    parser.add_argument('-t', '--trial', type=int, default=0, help='the experiment id')
+
     opt = parser.parse_args()
 
     # set different learning rate from these 4 models
-    if opt.model_s in ['MobileNetV2', 'ShuffleV1', 'ShuffleV2']:
+    if opt.model in ['MobileNetV2', 'ShuffleV1', 'ShuffleV2']:
         opt.learning_rate = 0.01
-
-    # set the path according to the environment
-    opt.model_path = './Results/kdssl_%s/student_model'%str(opt.v2)
 
     iterations = opt.lr_decay_epochs.split(',')
     opt.lr_decay_epochs = list([])
     for it in iterations:
         opt.lr_decay_epochs.append(int(it))
 
-    opt.model_t = get_teacher_name(opt.path_t)
 
-    num_total_class = DATASET_CLASS[opt.dataset] + opt.num_ood_class if opt.num_total_class is None else opt.num_total_class
-    opt.model_name = 'O:{}S:{}_T:{}_{}_{}_r:{}_a:{}_b:{}_t:{}_oc:{}_tc:{}_lb:{}_lbin:{}_{}'.format(opt.ood, opt.model_s, opt.model_t, opt.dataset,
-                                                                    opt.distill, opt.gamma, opt.alpha, opt.beta, opt.kd_T,
-                                                                    opt.num_ood_class, num_total_class, 
-                                                                    opt.lb_prop, opt.include_labeled, 
-                                                                    str(time.ctime()))
-    opt.save_folder = os.path.join(opt.model_path, opt.model_name)
-    os.makedirs(opt.save_folder, exist_ok=True)
-    print(opt.save_folder)
-    log_root = logging.getLogger()
-    init_logging(log_root, opt.save_folder)
+    # Load attributes from teacher model file
+    state_dict = torch.load(opt.path)
+    teacher_name, num_tc_head = state_dict["name"], state_dict["num_head"]
+    model_split_seed = state_dict["split_seed"]
+
+    assert num_tc_head == opt.num_classes, "Teacher and student must have matched number of heads"
+    assert model_split_seed == opt.split_seed, "Warning: Teacher and student are not trained on the same target data split"
+
+
+    # Initialize saving directories
+    #num_total_class = opt.num_classes + opt.num_ood_cls
+    opt.model_name = 'M:{}_T:{}_arch:{}_ID:{}_ic:{}_OOD:{}_oc:{}_smp:{}_lb:{}_split:{}_trial:{}'.format(opt.distill, opt.model_s, teacher_name,  
+                                                                                  opt.dataset, opt.num_classes,
+                                                                                  opt.ood, opt.num_ood_cls, 
+                                                                                  opt.sample_per_cls, opt.lb_prop,
+                                                                                  opt.split_seed, opt.trial                                                                                 
+                                                                                  )
+    # set the path
+    opt.model_path = os.path.join(opt.save_path, 'models', opt.model_name)
+    os.makedirs(opt.model_path, exist_ok=True)
+
+    opt.log_path = os.path.join(opt.save_path, 'log', opt.model_name)
+    os.makedirs(opt.log_path, exist_ok=True)
+
+    init_logging(log_root=logging.getLogger(), models_root=opt.log_path)
+    
+    # Save configuration in logging folder
+    config_name = os.path.join(opt.log_path, 'config.json')
+    with open(config_name, "w") as outfile: 
+        json.dump(vars(opt), outfile)
+
+    opt.tb_path = os.path.join(opt.save_path, 'tensorboard', opt.model_name)
+    os.makedirs(opt.tb_path, exist_ok=True)
 
     return opt
 
 
 def main():
     best_acc = 0
-
     opt = parse_option()
 
-    logger = SummaryWriter(opt.save_folder)
+    logger = SummaryWriter(opt.tb_path)
 
     # dataloader
     if opt.dataset == 'cifar100':
-        num_id_class = DATASET_CLASS[opt.dataset] if opt.num_total_class is None \
-                else opt.num_total_class - opt.num_ood_class 
-        if opt.distill == 'crd':    # Condition on filtering supervised only KD methods
-            model_t = get_teacher_name(opt.path_t)
-            train_loader, _, val_loader, n_data = get_cifar100_dataloaders(batch_size=opt.batch_size,
-                                                                           num_workers=opt.num_workers,
-                                                                           is_sample=True,
-                                                                           is_instance=False,
-                                                                           k=opt.nce_k,
-                                                                           mode=opt.mode,
-                                                                           ood=opt.ood,
-                                                                           model=model_t,   # FIXME: No need; Substitute with data path
-                                                                           num_ood_class=opt.num_ood_class,
-                                                                           num_total_class=opt.num_total_class,
-                                                                           lb_prop=opt.lb_prop, 
-                                                                           include_labeled=opt.include_labeled, 
-                                                                           split_seed=opt.split_seed)
-        else:
-            train_loader, utrain_loader = get_cifar100_dataloaders(batch_size=opt.batch_size, num_workers=opt.num_workers,
-                                                                    is_instance=True, is_sample=False,
-                                                                    ood=opt.ood, num_total_samples=opt.total_samples, 
-                                                                    num_ood_class=opt.num_ood_class, num_total_class=num_id_class,
-                                                                    lb_prop=opt.lb_prop, include_labeled=opt.include_labeled, 
-                                                                    split_seed=opt.split_seed, class_split_seed=opt.split_seed)
-            val_loader = get_cifar100_test(batch_size=opt.batch_size//2,
-                                            num_workers=opt.num_workers//2,
-                                            is_instance=True, is_sample=False,
-                                            num_classes=num_id_class,
-                                            split_seed=opt.split_seed)
+        opt.num_classes
+
+        train_loader, utrain_loader = get_cifar100_dataloaders(batch_size=opt.batch_size, num_workers=opt.num_workers,
+                                                                samples_per_cls=opt.samples_per_cls, num_id_class=opt.num_classes,
+                                                                ood=opt.ood, num_ood_class=opt.num_ood_class,
+                                                                lb_prop=opt.lb_prop, include_labeled=opt.include_labeled, 
+                                                                split_seed=opt.split_seed, class_split_seed=opt.split_seed)
+        val_loader = get_cifar100_test(batch_size=opt.batch_size//2,
+                                        num_workers=opt.num_workers//2,
+                                        num_classes=opt.num_classes,
+                                        split_seed=opt.split_seed)
     else:
         raise NotImplementedError(opt.dataset)
 
     # model
-    model_t = load_teacher(opt.path_t, num_id_class)   # TODO: Make teacher depending on split_seed
-    model_s = model_dict[opt.model_s](num_classes=num_id_class)
+    model_t = load_model(opt.tc_path)
+    model_s = MODEL_DICT[opt.model](num_classes=opt.num_classes)
 
     data = torch.randn(2, 3, 32, 32)
     model_t.eval()
@@ -179,10 +183,10 @@ def main():
     trainable_list.append(model_s)
 
     criterion_cls = nn.CrossEntropyLoss()
-    criterion_div = DistillKL(opt.kd_T)
+    criterion_div = DistillKL(opt.temp)
 
     if opt.distill == 'kd':
-        criterion_kd = DistillKL(opt.kd_T)
+        criterion_kd = DistillKL(opt.temp)
     elif opt.distill == 'hint':
         criterion_kd = HintLoss()
         regress_s = ConvReg(feat_s[opt.hint_layer].shape, feat_t[opt.hint_layer].shape)
@@ -293,7 +297,6 @@ def main():
         cudnn.benchmark = True
 
     # validate teacher accuracy
-    #teacher_acc, _, _ = validate(val_loader, model_t, criterion_cls, opt)
     metric_dict, test_loss = validate(val_loader, model_s, criterion_cls, opt)
     teacher_acc = metric_dict["acc1"]
     print('teacher accuracy: ', teacher_acc)
@@ -311,13 +314,10 @@ def main():
         print("==> training...")
 
         time1 = time.time()
-        if opt.distill == 'crd':    # train_only_labeled
-            train_acc, train_loss = train_bl(epoch, train_loader, module_list, criterion_list, optimizer, opt)
-        else:
-            train_acc, train_loss = train_ssl(epoch, iter_per_epoch, train_loader, utrain_loader, module_list, criterion_list,optimizer, opt)
-
+        train_acc, train_loss = train_ssl(epoch, iter_per_epoch, train_loader, utrain_loader, module_list, criterion_list,optimizer, opt)
         time2 = time.time()
         print('epoch {}, total time {:.2f}'.format(epoch, time2 - time1))
+        
         #test_acc, tect_acc_top5, test_loss = validate(val_loader, model_s, criterion_cls, opt)  # TODO: Input (acc1, acc5) as two metrics
         metric_dict, test_loss = validate(val_loader, model_s, criterion_cls, opt)
         test_acc = metric_dict["acc1"]
@@ -330,31 +330,51 @@ def main():
         # save the best model
         if test_acc > best_acc:
             best_acc = test_acc
-            #best_acc_top5 = tect_acc_top5
             state = {
                 'epoch': epoch,
-                'model': model_s.state_dict(),
-                'num_head': num_id_class,
+                'model': model_s.cpu().state_dict(),
+                'optimizer': optimizer.cpu().state_dict(),
+                'name': opt.model, 
+                'num_head': opt.num_classes,
+                'split_seed': opt.split_seed,
                 'best_acc': best_acc,
             }
-            save_file = os.path.join(opt.save_folder, '{}_best.pth'.format(opt.model_s))
+            save_file = os.path.join(opt.model_path, '{}_best.pth'.format(opt.model))
             print('saving the best model!')
             torch.save(state, save_file)
+
+
+        # regular saving
+        if epoch % opt.save_freq == 0:
+            print('==> Saving...')
+            state = {
+                'epoch': epoch,
+                'model': model_s.cpu().state_dict(),
+                'optimizer': optimizer.cpu().state_dict(),
+                'name': opt.model, 
+                'num_head': opt.num_classes,
+                'split_seed': opt.split_seed,
+                'accuracy': test_acc,
+            }
+            save_file = os.path.join(opt.save_folder, 'ckpt_epoch_{epoch}.pth'.format(epoch=epoch))
+            torch.save(state, save_file)
+
         msg = "Epoch %d test_acc %.3f, best_acc %.3f" % (epoch, test_acc, best_acc)
-            #"Epoch %d test_acc %.3f, test_top5 %.3f, best_acc %.3f, best_top5 %.3f" % (
-            #epoch, test_acc, tect_acc_top5, best_acc, best_acc_top5)
         logging.info(msg)
 
-    # This best accuracy is only for printing purpose.
-    # The results reported in the paper/README is from the last epoch.
+    # save model
     print('best accuracy:', best_acc)
     state = {
         'opt': opt,
-        'model': model_s.state_dict(),
-        'accuracy': test_acc
+        'model': model_s.cpu().state_dict(),
+        'optimizer': optimizer.cpu().state_dict(),
+        'name': opt.model, 
+        'num_head': opt.num_classes,
+        'split_seed': opt.split_seed,
     }
-    save_file = os.path.join(opt.save_folder, '{}_last.pth'.format(opt.model_s))
+    save_file = os.path.join(opt.model_path, '{}_last.pth'.format(opt.model_s))
     torch.save(state, save_file)
+
 
 if __name__ == '__main__':
     main()

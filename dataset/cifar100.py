@@ -471,7 +471,6 @@ def get_cifar100_test(batch_size=64, num_workers=4,
                                 train=False,
                                 transform=test_transform, 
                                 indexs=test_idx)
-    #print("test_set.classes", test_set.classes)
     
     test_loader = DataLoader(test_set,
                              batch_size=batch_size,
@@ -483,21 +482,13 @@ def get_cifar100_test(batch_size=64, num_workers=4,
 
 
 def get_cifar100_dataloaders(batch_size=128, num_workers=8, 
-                             is_instance=False,
-                             is_sample=True,
-                             k=4096, mode='exact', percent=1.0, ood='tin', model=None, 
+                             samples_per_cls=None, num_id_class=DATASET_CLASS['cifar100'], 
+                             ood='tin', num_ood_class=DATASET_CLASS['TIN'], 
                              lb_prop=1.0, include_labeled=False, 
-                             num_ood_class=200, num_id_class=DATASET_CLASS['cifar100'], 
-                             num_total_samples=None,
                              split_seed=None, class_split_seed=None):
     """
     cifar 100
     """
-    if is_instance:
-        assert not is_sample
-    if is_sample:
-        assert not is_instance
-
     data_folder = get_data_folder()
 
     train_transform = transforms.Compose([
@@ -508,17 +499,7 @@ def get_cifar100_dataloaders(batch_size=128, num_workers=8,
     ])
 
 
-    if is_instance and not is_sample:
-        base_dataset = CIFAR100Instance(root=data_folder + '/cifar/',
-                                     download=True,
-                                     train=True,
-                                     transform=train_transform)
-
-    elif is_sample and not is_instance:
-        base_dataset = InstanceSample(root=data_folder, data=ood, model=model, transform=utrain_transform,
-                                   target_transform=None, k=k, mode=mode, is_sample=True, percent=percent)
-    else:
-        base_dataset = datasets.CIFAR100(root=data_folder + '/cifar/',
+    base_dataset = datasets.CIFAR100(root=data_folder + '/cifar/',
                                       download=True,
                                       train=True,
                                       transform=train_transform)
@@ -536,16 +517,12 @@ def get_cifar100_dataloaders(batch_size=128, num_workers=8,
 
     # Split test set given requested num_id_class
     class_idx = get_class_idx(num_id_class, num_full_class=DATASET_CLASS['cifar100'], split_seed=class_split_seed)
-    #else:
-    num_total_class = num_id_class + num_ood_class
 
     full_samples_per_cls = len(base_dataset) // base_dataset.num_classes
-    if num_total_samples is not None:   # Automatically derive lb_prop to keep total samples consistent
-        # NOTE: Shared samples_per_cls only work under include_lb_to_ub mode
-        samples_per_cls = num_total_samples // num_total_class   # Be careful with impact of inexactness due to flooring
-    else:
+    if samples_per_cls is None:  
         samples_per_cls = full_samples_per_cls
-
+    # TODO: Consider converting samples_per_cls higher than full_samples_per_cls to lower bound on ood_class
+    samples_per_cls = np.clip(samples_per_cls, a_min=0, a_max=samples_per_cls)
     instance_prop = samples_per_cls/full_samples_per_cls
 
     lb_idx, ulb_idx = x_u_split(base_dataset, 
@@ -620,10 +597,8 @@ def get_cifar100_dataloaders(batch_size=128, num_workers=8,
                                 shuffle=True, num_workers=num_workers, drop_last=True)
         print("unlabeled datasize: ", len(unlabeled_set))
     
-    if is_instance or is_sample:
-        return train_loader, utrain_loader
-    else:
-        return train_loader, utrain_loader
+
+    return train_loader, utrain_loader
 
 
 class MixedDataset(torch.utils.data.Dataset):
