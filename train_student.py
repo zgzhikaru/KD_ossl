@@ -119,10 +119,11 @@ def parse_option():
 
     # Initialize saving directories
     #num_total_class = opt.num_classes + opt.num_ood_cls
-    opt.model_name = 'M:{}_T:{}_arch:{}_ID:{}_ic:{}_OOD:{}_oc:{}_smp:{}_lb:{}_split:{}_trial:{}'.format(opt.distill, opt.arch, teacher_name,  
+    smp_val = 50000//DATASET_CLASS[opt.dataset]
+    opt.model_name = 'M:{}_T:{}_arch:{}_ID:{}_ic:{}_OOD:{}_oc:{}_smp:{}_lb:{}_split:{}_trial:{}'.format(opt.distill, teacher_name, opt.arch, 
                                                                                   opt.dataset, opt.num_classes,
                                                                                   opt.ood, opt.num_ood_class, 
-                                                                                  opt.samples_per_cls, opt.lb_prop,
+                                                                                  smp_val, opt.lb_prop,
                                                                                   opt.split_seed, opt.trial                                                                                 
                                                                                   )
     # set the path
@@ -297,7 +298,7 @@ def main():
         cudnn.benchmark = True
 
     # validate teacher accuracy
-    metric_dict, test_loss = validate(val_loader, model_s, criterion_cls, opt)
+    metric_dict, test_loss = validate(val_loader, model_t, criterion_cls, opt)
     teacher_acc = metric_dict["acc1"]
     print('teacher accuracy: ', teacher_acc)
 
@@ -372,7 +373,7 @@ def main():
         'num_head': opt.num_classes,
         'split_seed': opt.split_seed,
     }
-    save_file = os.path.join(opt.model_path, '{}_last.pth'.format(opt.model_s))
+    save_file = os.path.join(opt.model_path, '{}_last.pth'.format(opt.arch))
     torch.save(state, save_file)
 
 

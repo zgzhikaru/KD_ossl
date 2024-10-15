@@ -30,7 +30,7 @@ cifar100_std = (0.2675, 0.2565, 0.2761)
 DATASET_CLASS = {
     "cifar10": 10,
     "cifar100": 100,
-    "TIN": 200,
+    "tin": 200,
 }
 
 
@@ -51,7 +51,7 @@ class TinInstance(torch.utils.data.Dataset):
         self.img_list.sort()
 
         self.num_classes = len(self.classes)
-        self.name = 'TIN'
+        self.name = 'tin'
         print("ood dataset size: ", len(self.img_list))
         
 
@@ -102,9 +102,6 @@ class CIFAR100Instance(datasets.CIFAR100):
 
             self.classes = np.unique(real_targets)
             self.num_classes = len(self.classes)
-
-            print("real_targets sorted", is_sorted(real_targets))
-            print("real_targets", real_targets)
 
             assert is_sorted(real_targets) and is_sorted(self.classes), "Class idx need to be in sorted order"
             cls_pos = np.searchsorted(real_targets, self.classes)
@@ -320,7 +317,6 @@ def split_class_set(num_classes, split_size, rng=None, sorted=True):
 
 
 def get_class_idx(num_classes, num_full_class, split_seed):
-    num_full_class = DATASET_CLASS['cifar100']
     num_classes = np.clip(num_classes, a_min=0, a_max=num_full_class)
     assert num_classes > 0, "Number of class should be positive integer"
 
@@ -337,12 +333,15 @@ def get_class_idx(num_classes, num_full_class, split_seed):
 
 def x_u_split(base_dataset, lb_prop=1.0, include_labeled=True, 
               class_idx=None, include_unseen=False, 
-              instance_prop=1.0, min_size=0, rng=None):
+              instance_prop=1.0, max_samples_per_cls=None,
+              min_size=0, rng=None):
     n_data = len(base_dataset)
     num_full_classes = base_dataset.num_classes 
     full_label_per_class = n_data // num_full_classes
     
     lb_prop = np.clip(lb_prop, 0, 1.0)
+    #if max_samples_per_cls is not None:
+    #    max_samples_per_cls = np.clip(max_samples_per_cls, min_size, full_label_per_class)
     instance_prop = np.clip(instance_prop, 0, lb_prop)
 
     if class_idx is not None:
@@ -359,8 +358,11 @@ def x_u_split(base_dataset, lb_prop=1.0, include_labeled=True,
     unlabeled_idx = []
     for i in range(num_full_classes):
         idx = np.where(labels == i)[0]
-        if rng is not None:     # Randomness of splitting
-            rng.shuffle(idx)
+        if rng is not None:     # Keep rng to ensure reproducing same split between teacher and student
+            rng.shuffle(idx)    # Randomness of splitting
+
+        #if max_samples_per_cls is not None:
+        #    idx = idx[:max_samples_per_cls]
         if instance_prop < 1.0:
             idx = idx[:instance_per_class]
         idx_u = idx.copy()
@@ -368,9 +370,7 @@ def x_u_split(base_dataset, lb_prop=1.0, include_labeled=True,
         if lb_prop < 1.0:
             idx_l = idx_l[:label_per_class]
             idx_u = idx if include_labeled else idx[label_per_class:]
-        # Keep rng to ensure reproducing same split between teacher and student
-        #labeled_idx.extend(idx_l)
-        #unlabeled_idx.extend(idx)
+        
         labeled_idx.append(idx_l)
         unlabeled_idx.append(idx_u)
 
@@ -410,9 +410,9 @@ def x_u_split(base_dataset, lb_prop=1.0, include_labeled=True,
 
 
 
-def split_ood_set(base_ood_set, num_subset_cls=200, instance_prop=1.0, 
+def split_ood_set(base_ood_set, num_subset_cls=200, instance_prop=1.0, max_samples_per_cls=None,
                   instance_split_seed=None, class_split_seed=None):
-    
+
     num_full_cls = DATASET_CLASS[base_ood_set.name]
     num_subset_cls = np.clip(num_subset_cls, 0, num_full_cls)
     assert num_subset_cls > 0
@@ -421,7 +421,13 @@ def split_ood_set(base_ood_set, num_subset_cls=200, instance_prop=1.0,
     # NOTE: Assuming balanced class samples
     full_samples_per_cls = len(base_ood_set) // base_ood_set.num_classes
     instance_prop = np.clip(instance_prop, 0.0, 1.0)
+    #if max_samples_per_cls is not None:
+    #    max_samples_per_cls = np.clip(max_samples_per_cls, 0, full_label_per_class)
     samples_per_cls = int(np.ceil(instance_prop * full_samples_per_cls))
+
+    #full_samples_per_cls = np.array(base_ood_set.get_samples_per_cls())
+    #samples_per_cls = np.ceil(instance_prop * full_samples_per_cls).astype(int)
+    #sample_idx_per_cls = np.insert(np.cumsum(full_samples_per_cls), 0, 0)
     # TODO: Support manually specified samples_per_cls
 
     if instance_split_seed is not None:
@@ -430,8 +436,12 @@ def split_ood_set(base_ood_set, num_subset_cls=200, instance_prop=1.0,
     all_sample_idx = []
     for cls_id in range(base_ood_set.num_classes):  # TODO: Consider store & get samples for each cls from datafolder
         sample_idx = np.arange(full_samples_per_cls) + cls_id * samples_per_cls
+        #begin_idx, end_idx = sample_idx_per_cls[cls_id-1], sample_idx_per_cls[cls_id]
+        #sample_idx = np.arange(begin_idx, end_idx)
         if instance_split_seed is not None:
             rng.shuffle(sample_idx)
+        #if max_samples_per_cls is not None:
+        #    sample_idx = sample_idx[:max_samples_per_cls]
         sample_idx = sample_idx[:samples_per_cls]
         all_sample_idx.append(sample_idx)
 
@@ -482,7 +492,7 @@ def get_cifar100_test(batch_size=64, num_workers=4,
 
 def get_cifar100_dataloaders(batch_size=128, num_workers=8, 
                              samples_per_cls=None, num_id_class=DATASET_CLASS['cifar100'], 
-                             ood='tin', num_ood_class=DATASET_CLASS['TIN'], 
+                             ood='tin', num_ood_class=DATASET_CLASS['tin'], 
                              lb_prop=1.0, include_labeled=False, 
                              split_seed=None, class_split_seed=None):
     """
@@ -525,6 +535,7 @@ def get_cifar100_dataloaders(batch_size=128, num_workers=8,
     # TODO: Consider converting samples_per_cls higher than full_samples_per_cls to lower bound on ood_class
     samples_per_cls = np.clip(samples_per_cls, a_min=0, a_max=samples_per_cls)
     instance_prop = samples_per_cls/full_samples_per_cls
+    # TODO: Remove convertion to instance_prop; Slice by max_samples_per_cls directly
 
     lb_idx, ulb_idx = x_u_split(base_dataset, 
                                 instance_prop=instance_prop, min_size=batch_size, 
