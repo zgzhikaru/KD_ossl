@@ -163,7 +163,7 @@ def train_distill(epoch, train_loader, module_list, criterion_list, optimizer, o
     return top1.avg, losses.avg
 
 
-def train_ssldistill(epoch, iter_per_epoch, train_loader,utrain_loader, module_list, criterion_list, optimizer, opt):
+def train_ssldistill(epoch, iter_per_epoch, train_loader,utrain_loader, module_list, criterion_list, optimizer, opt, logger=None):
     """One epoch distillation"""
     for module in module_list:
         module.train()
@@ -181,11 +181,25 @@ def train_ssldistill(epoch, iter_per_epoch, train_loader,utrain_loader, module_l
     model_t = module_list[-1]
     model_t = model_t.eval()
 
+    data = torch.randn(2, 3, 32, 32).cuda()
+    logit_t = model_t(data)
+
+    class_idx = None
+    tc_cls = logit_t.shape[-1]
+    lb_dataset = train_loader.dataset
+    if lb_dataset.num_classes < tc_cls:
+        print("Casting teacher's head to {} classes".format(len(lb_dataset.classes)))
+        class_idx = lb_dataset.classes
+
     batch_time = AverageMeter()
     data_time = AverageMeter()
     losses = AverageMeter()
     top1 = AverageMeter()
     top5 = AverageMeter()
+
+    ce_losses = AverageMeter()
+    div_losses = AverageMeter()
+    kd_losses = AverageMeter()
 
     end = time.time()
     
@@ -194,9 +208,12 @@ def train_ssldistill(epoch, iter_per_epoch, train_loader,utrain_loader, module_l
     u_iter = iter(utrain_loader) if ul_ood_exist else None
     l_iter = iter(train_loader)
 
+    
+
     #for batch_idx in range(len(train_loader)):
     for batch_idx in range(iter_per_epoch):
         # ==================labeled data================
+        curr_iter = epoch * iter_per_epoch + batch_idx
         try:
             data = next(l_iter)
 
@@ -243,12 +260,17 @@ def train_ssldistill(epoch, iter_per_epoch, train_loader,utrain_loader, module_l
             feat_t, logit_t = model_t(inputs, is_feat=True, preact=preact)
             feat_t = [f.detach() for f in feat_t]
 
-
-        loss_cls = criterion_cls(logit_s[:batch_size], target_l)
+        #loss_cls = criterion_cls(logit_s[:batch_size], target_l)
+        logit_ce = logit_s[:batch_size]
+        loss_cls = criterion_cls(logit_ce, target_l)
         if ul_ood_exist and opt.include_labeled:     # Compute only distillation loss for unlabeled set
             feat_t, logit_t = [feat[batch_size:] for feat in feat_t], logit_t[batch_size:]
             feat_s, logit_s = [feat[batch_size:] for feat in feat_s], logit_s[batch_size:]
             
+        # Reindex logit_s given output class_idx of student; Match student & teacher's head
+        if class_idx is not None:
+            logit_t = logit_t[:, class_idx] 
+            # NOTE: Assuming teacher's class are sorted in the same order as student class idx
 
         # Compute distillation loss
         if opt.alpha > 0 or opt.beta > 0:
@@ -338,10 +360,21 @@ def train_ssldistill(epoch, iter_per_epoch, train_loader,utrain_loader, module_l
                 raise NotImplementedError(opt.distill)
 
             loss = opt.gamma * loss_cls + opt.alpha * loss_div + opt.beta * loss_kd
+            #div_losses.update(loss_div.detach().item(), inputs.size(0))
+            #kd_losses.update(loss_kd.detach().item(), inputs.size(0))
+            
+            if loss_div and opt.alpha:
+                logger.add_scalar('train/kl_loss', loss_div.detach().item(), curr_iter)
+            if loss_kd and opt.beta:
+                logger.add_scalar('train/distill_loss', loss_kd.detach().item(), curr_iter)
         else:
             loss = loss_cls
+        
+        #ce_losses.update(loss_cls.detach().item(), inputs.size(0))
+        logger.add_scalar('train/ce_loss', loss_cls.detach().item(), curr_iter)
 
-        acc1, acc5 = accuracy(logit_s[:batch_size], target_l, topk=(1, 5))
+        #acc1, acc5 = accuracy(logit_s[:batch_size], target_l, topk=(1, 5))
+        acc1, acc5 = accuracy(logit_ce, target_l, topk=(1, 5))
         losses.update(loss.detach().item(), inputs.size(0))
         top1.update(acc1[0], batch_size)
         top5.update(acc5[0], batch_size)
@@ -369,6 +402,10 @@ def train_ssldistill(epoch, iter_per_epoch, train_loader,utrain_loader, module_l
 
     print(' * Acc@1 {top1.avg:.3f} Acc@5 {top5.avg:.3f}'
           .format(top1=top1, top5=top5))
+    
+    #logger.add_scalar('train/ce_loss', ce_losses.avg, epoch)
+    #logger.add_scalar('train/kl_loss', div_losses.avg, epoch)
+    #logger.add_scalar('train/distill_loss', kd_losses.avg, epoch)
 
     return top1.avg, losses.avg
 

@@ -33,6 +33,12 @@ DATASET_CLASS = {
     "tin": 200,
 }
 
+DATASET_SAMPLES = {
+    "cifar10": 50000,
+    "cifar100": 50000,
+    "tin": 100000,
+}
+
 
 # TIN: TinyImageNet
 class TinInstance(torch.utils.data.Dataset):

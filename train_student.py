@@ -21,7 +21,7 @@ from models.util import ConvReg, LinearEmbed
 from models.util import Connector, Translator, Paraphraser
 from distiller_zoo.AIN import transfer_conv, statm_loss
 
-from dataset.cifar100 import get_cifar100_dataloaders, get_cifar100_test, DATASET_CLASS
+from dataset.cifar100 import get_cifar100_dataloaders, get_cifar100_test, DATASET_CLASS, DATASET_SAMPLES
 from helper.util import adjust_learning_rate
 from distiller_zoo import DistillKL, HintLoss, Attention, Similarity, Correlation, VIDLoss, RKDLoss
 from distiller_zoo import PKT, ABLoss, FactorTransfer, KDSVD, FSP, NSTLoss,CRDLoss
@@ -29,6 +29,7 @@ from distiller_zoo import PKT, ABLoss, FactorTransfer, KDSVD, FSP, NSTLoss,CRDLo
 from helper.loops import train_ssldistill as train_ssl
 
 from helper.loops import validate
+from helper.util import accuracy
 from helper.pretrain import init
 from utils.utils import init_logging, load_model
 
@@ -111,15 +112,20 @@ def parse_option():
     # Load attributes from teacher model file
     state_dict = torch.load(opt.tc_path)
     teacher_name, num_tc_head = state_dict["name"], state_dict["num_head"]
-    model_split_seed = state_dict["split_seed"]
+    #model_split_seed = state_dict["split_seed"]
 
-    assert num_tc_head == opt.num_classes, "Teacher and student must have matched number of heads"
-    assert model_split_seed == opt.split_seed, "Warning: Teacher and student are not trained on the same target data split"
+    assert opt.num_classes > 0, "Must specify a positive number of class"
+
+    #if opt.num_classes < num_tc_head:
+    #    pass
+    assert not num_tc_head < opt.num_classes, "Number of teacher heads are insufficient to classify requested number of class"
+    #assert num_tc_head == opt.num_classes, "Teacher and student must have same number of heads"
+    #assert model_split_seed == opt.split_seed, "Warning: Teacher and student are not trained on the same target data split"
 
 
     # Initialize saving directories
     #num_total_class = opt.num_classes + opt.num_ood_cls
-    smp_val = 50000//DATASET_CLASS[opt.dataset]
+    smp_val = DATASET_SAMPLES[opt.dataset]//DATASET_CLASS[opt.dataset]
     opt.model_name = 'M:{}_T:{}_arch:{}_ID:{}_ic:{}_OOD:{}_oc:{}_smp:{}_lb:{}_split:{}_trial:{}'.format(opt.distill, teacher_name, opt.arch, 
                                                                                   opt.dataset, opt.num_classes,
                                                                                   opt.ood, opt.num_ood_class, 
@@ -155,7 +161,7 @@ def main():
     # dataloader
     if opt.dataset == 'cifar100':
         opt.num_classes
-
+        # TODO: Get class_idx and pass the shared argument into both train & test set constructor.
         train_loader, utrain_loader = get_cifar100_dataloaders(batch_size=opt.batch_size, num_workers=opt.num_workers,
                                                                 samples_per_cls=opt.samples_per_cls, num_id_class=opt.num_classes,
                                                                 ood=opt.ood, num_ood_class=opt.num_ood_class,
@@ -175,8 +181,9 @@ def main():
     data = torch.randn(2, 3, 32, 32)
     model_t.eval()
     model_s.eval()
-    feat_t, _ = model_t(data, is_feat=True)
+    feat_t, logit_t = model_t(data, is_feat=True)
     feat_s, _ = model_s(data, is_feat=True)
+    tc_classes = logit_t.shape[-1]
 
     module_list = nn.ModuleList([])
     module_list.append(model_s)
@@ -298,16 +305,29 @@ def main():
         cudnn.benchmark = True
 
     # validate teacher accuracy
-    metric_dict, test_loss = validate(val_loader, model_t, criterion_cls, opt)
+    #metric_dict, test_loss = validate(val_loader, model_t, criterion_cls, opt)
+    assert len(val_loader.dataset.classes) == opt.num_classes
+    if opt.num_classes< tc_classes:
+        print("Casting teacher's heads({}) to test classes({})".format(tc_classes, opt.num_classes))
+        eval_metrics = {"acc1": lambda y_hat, y: accuracy(y_hat, y, output_cls=val_loader.dataset.classes)}
+    else:
+        eval_metrics = {"acc1": accuracy}
+    metric_dict, _ = validate(val_loader, model_t, None, opt, metrics=eval_metrics)
     teacher_acc = metric_dict["acc1"]
     print('teacher accuracy: ', teacher_acc)
 
 
-    # NOTE: Originally total_data = len(train_loader.dataset)
+    # NOTE: Originally total_data = len(train_loader.dataset)//batch_size
+    """
     u_data_len = len(utrain_loader.dataset) if utrain_loader is not None else 0
-    total_data = (len(train_loader.dataset) + u_data_len)//2 if not opt.include_labeled else u_data_len//2 
+    #total_data = (len(train_loader.dataset) + u_data_len)//2 if not opt.include_labeled else u_data_len//2 
+    total_data = u_data_len
+    if opt.include_labeled:
+        total_data += len(train_loader.dataset)
     iter_per_epoch = total_data // opt.batch_size
-
+    """
+    iter_per_epoch = DATASET_SAMPLES[opt.dataset] // opt.batch_size
+    print("iter per epoch:", iter_per_epoch)
 
     # routine
     for epoch in range(1, opt.epochs + 1):
@@ -315,7 +335,7 @@ def main():
         print("==> training...")
 
         time1 = time.time()
-        train_acc, train_loss = train_ssl(epoch, iter_per_epoch, train_loader, utrain_loader, module_list, criterion_list,optimizer, opt)
+        train_acc, train_loss = train_ssl(epoch, iter_per_epoch, train_loader, utrain_loader, module_list, criterion_list, optimizer, opt, logger=logger)
         time2 = time.time()
         print('epoch {}, total time {:.2f}'.format(epoch, time2 - time1))
         
