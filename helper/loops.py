@@ -208,20 +208,13 @@ def train_ssldistill(epoch, iter_per_epoch, train_loader,utrain_loader, module_l
     u_iter = iter(utrain_loader) if ul_ood_exist else None
     l_iter = iter(train_loader)
 
-    
-
     #for batch_idx in range(len(train_loader)):
     for batch_idx in range(iter_per_epoch):
+    #for batch_idx, ()
         # ==================labeled data================
         curr_iter = epoch * iter_per_epoch + batch_idx
-        try:
-            data = next(l_iter)
 
-        except:
-            l_iter = iter(train_loader)
-            data = next(l_iter)
-
-        input_l, target_l, index_l = data
+        input_l, target_l, index_l = next(l_iter)
 
         batch_size = input_l.shape[0]
 
@@ -231,16 +224,10 @@ def train_ssldistill(epoch, iter_per_epoch, train_loader,utrain_loader, module_l
         inputs = input_l
 
         # ==================unlabeled data================
-        if ul_ood_exist:
-            try:
-                data = next(u_iter)
-            except:
-                u_iter = iter(utrain_loader)
-                data = next(u_iter)
+        if ul_ood_exist: 
             #(input_ul, _), index_u = data
-            input_ul, index_u = data
-            #input_u1 = data
-    
+            input_ul, index_u = next(u_iter)
+
             input_ul = input_ul.float().cuda()
 
             inputs = torch.cat((input_l, input_ul), dim=0).cuda()

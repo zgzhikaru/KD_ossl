@@ -16,10 +16,10 @@ method="kd"
 
 KD_args="--distill "$method" -r 0.9 -a 0.1 -b 0"
 
-n_total=200
+#n_total=200
 min_n_cls=20
 max_n_cls=100
-for n_total in 200 150 100
+for n_total in 100 150 200
 do
     for n_cls in `seq $max_n_cls -20 $min_n_cls`;   # (20,40,60,80,100)
     do

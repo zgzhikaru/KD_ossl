@@ -326,7 +326,7 @@ def main():
         total_data += len(train_loader.dataset)
     iter_per_epoch = total_data // opt.batch_size
     """
-    iter_per_epoch = DATASET_SAMPLES[opt.dataset] // opt.batch_size
+    iter_per_epoch = len(train_loader.dataset) // opt.batch_size  #DATASET_SAMPLES[opt.dataset] // opt.batch_size
     print("iter per epoch:", iter_per_epoch)
 
     # routine

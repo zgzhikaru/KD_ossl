@@ -562,6 +562,7 @@ def get_cifar100_dataloaders(batch_size=128, num_workers=8,
                                     unlabeled=True, 
                                     indexs=ulb_idx) if ulb_idx is not None else None
 
+    #mu = len(ulb_train_set)//len(lb_train_set)
     train_loader = DataLoader(lb_train_set,
                             batch_size=batch_size,
                             shuffle=True,
@@ -572,7 +573,7 @@ def get_cifar100_dataloaders(batch_size=128, num_workers=8,
 
     if not num_ood_class > 0:   # SSL with only ID data
         utrain_loader = DataLoader(ulb_train_set,
-                            batch_size=batch_size,
+                            batch_size=batch_size, #* mu,
                             shuffle=True,
                             num_workers=num_workers,
                             drop_last=True) if ulb_train_set is not None else None
@@ -606,12 +607,14 @@ def get_cifar100_dataloaders(batch_size=128, num_workers=8,
             data_folder + '/places365', transform=utrain_transform)
 
     if ulb_train_set is None:
-        utrain_loader = DataLoader(ood_set, batch_size=batch_size,
+        #mu = len(ood_set)//len(lb_train_set)
+        utrain_loader = DataLoader(ood_set, batch_size=batch_size, #* mu,
                             shuffle=True, num_workers=num_workers, drop_last=True) 
         print("unlabeled datasize: ", len(ood_set))
     else:
         unlabeled_set = MixedDataset(ulb_train_set, ood_set)
-        utrain_loader = DataLoader(unlabeled_set, batch_size=batch_size,
+        #mu = len(unlabeled_set)//len(lb_train_set)
+        utrain_loader = DataLoader(unlabeled_set, batch_size=batch_size, #* mu,
                                 shuffle=True, num_workers=num_workers, drop_last=True)
         print("unlabeled datasize: ", len(unlabeled_set))
     

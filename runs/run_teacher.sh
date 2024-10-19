@@ -2,7 +2,7 @@
 
 ROOT_DIR="results/teacher/"
 method="supCE"
-tc="resnet32x4"
+tc="resnet8x4" #"resnet32x4"
 id_data="cifar100"
 n_cls=100
 trial=0
