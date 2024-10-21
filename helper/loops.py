@@ -197,10 +197,6 @@ def train_ssldistill(epoch, iter_per_epoch, train_loader,utrain_loader, module_l
     top1 = AverageMeter()
     top5 = AverageMeter()
 
-    ce_losses = AverageMeter()
-    div_losses = AverageMeter()
-    kd_losses = AverageMeter()
-
     end = time.time()
     
     ul_ood_exist = utrain_loader is not None

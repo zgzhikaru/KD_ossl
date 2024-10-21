@@ -2,12 +2,12 @@
 
 ROOT_DIR="results/teacher/"
 method="supCE"
-tc="resnet8x4" #"resnet32x4"
+tc="wrn_40_1" #"resnet8x4" #"resnet32x4"
 id_data="cifar100"
-n_cls=100
+n_cls_max=80    #100
 trial=0
 
-for n_cls in `seq 100 -20 20`;
+for n_cls in `seq $n_cls_max -20 20`;
 do
     save_name="M:"$method"_arch:$tc""_ID:"$id_data"_ic:"$n_cls"_trial:"$trial
     

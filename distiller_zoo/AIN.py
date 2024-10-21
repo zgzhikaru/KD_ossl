@@ -22,9 +22,15 @@ class transfer_conv(nn.Module):
             elif isinstance(m, nn.BatchNorm2d):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
+
     def forward(self, student):
-        student = self.Connectors(student)
-        return student
+        if len(student.size()) == 2:
+            student = student.view(student.shape[0], student.shape[1], 1, 1)
+            student = self.Connectors(student)
+            return student.squeeze((-1,-2))
+        else:
+            return self.Connectors(student)
+            
 
 
 class statm_loss(nn.Module):

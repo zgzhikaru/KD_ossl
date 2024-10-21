@@ -1,6 +1,6 @@
 ROOT_DIR="results/"
-tc="resnet32x4"
-arch="resnet8x4"
+tc=$1 #"wrn_40_2" #"resnet32x4"
+arch=$2   #"wrn_40_1"   #"resnet8x4"
 
 id_data="cifar100"
 n_cls=100
@@ -11,22 +11,23 @@ samples=500
 lb=1.0
 split=12345
 trial=0
-method="kd"
+method="hint" #"kd"
 
 
-KD_args="--distill "$method" -r 0.9 -a 0.1 -b 0"
+#KD_args="--distill "$method" -r 0.9 -a 0.1 -b 0"
+KD_args="--distill $method -a 0.0 -b 1.0 --hint_layer 4"
 
 #n_total=200
 min_n_cls=20
 max_n_cls=100
-for n_total in 100 150 200
+for n_total in 100 200 
 do
     for n_cls in `seq $max_n_cls -20 $min_n_cls`;   # (20,40,60,80,100)
     do
         n_ood_cls=$((n_total - n_cls))
         ID_args="--dataset "$id_data" --num_classes "$n_cls
         OOD_args="--ood "$ood" --num_ood_class "$n_ood_cls
-        #tc_save_name="M:supCE_arch:$tc""_ID:"$id_data"_ic:"$n_cls"_trial:"$trial
+
         tc_save_name="M:supCE_arch:$tc""_ID:"$id_data"_ic:"$max_n_cls"_trial:"$trial
         tc_path=$ROOT_DIR/teacher/model/$tc_save_name/$tc"_last.pth"
         

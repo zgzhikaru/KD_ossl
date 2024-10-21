@@ -197,9 +197,15 @@ def main():
         criterion_kd = DistillKL(opt.temp)
     elif opt.distill == 'hint':
         criterion_kd = HintLoss()
-        regress_s = ConvReg(feat_s[opt.hint_layer].shape, feat_t[opt.hint_layer].shape)
-        module_list.append(regress_s)
-        trainable_list.append(regress_s)
+        if opt.hint_layer < 4:  # Feature-map layers
+            connector = ConvReg(feat_s[opt.hint_layer].shape, feat_t[opt.hint_layer].shape)
+        else:       # Embedding Feature layer
+            opt.s_dim = feat_s[opt.hint_layer].shape[1]
+            opt.t_dim = feat_t[opt.hint_layer].shape[1]
+            connector = transfer_conv(opt.s_dim, opt.t_dim)
+        module_list.append(connector)
+        trainable_list.append(connector)
+        
     elif opt.distill == 'crd':
         opt.s_dim = feat_s[-1].shape[1]
         opt.t_dim = feat_t[-1].shape[1]
@@ -212,6 +218,8 @@ def main():
     elif 'srd' in opt.distill:
         opt.s_dim = feat_s[-2].shape[1]
         opt.t_dim = feat_t[-2].shape[1]
+        #opt.s_dim = feat_s[opt.hint_layer].shape[1]
+        #opt.t_dim = feat_t[opt.hint_layer].shape[1]
         connector = transfer_conv(opt.s_dim, opt.t_dim)
         module_list.append(connector)
         # add this because connector need to to updated

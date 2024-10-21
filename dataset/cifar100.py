@@ -385,7 +385,8 @@ def x_u_split(base_dataset, lb_prop=1.0, include_labeled=True,
         labeled_idx = labeled_idx[class_idx]
     labeled_idx = labeled_idx.flatten()
 
-    if not (lb_prop < 1.0 or include_labeled) and class_idx is None:   
+    if not (lb_prop < 1.0 or include_labeled) \
+        and (class_idx is None or not include_unseen):   
         # Unlabeled set does not exist at all
         return labeled_idx, None
     
