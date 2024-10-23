@@ -156,11 +156,10 @@ def main():
     opt = parse_option()
 
     logger = SummaryWriter(opt.tb_path)
+    print("num_labels", opt.num_labels)
 
     # dataloader
     if opt.dataset == 'cifar100':
-        print("samples_per_cls", opt.samples_per_cls)
-        # TODO: Get class_idx and pass the shared argument into both train & test set constructor.
         train_loader, utrain_loader = get_cifar100_dataloaders(batch_size=opt.batch_size, num_workers=opt.num_workers,
                                                                 num_id_class=opt.num_classes,
                                                                 ood=opt.ood, num_ood_class=opt.num_ood_class,

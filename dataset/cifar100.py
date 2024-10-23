@@ -452,6 +452,7 @@ def split_ood_set(base_ood_set, num_subset_cls=200, samples_per_cls=None, #insta
 
 def get_cifar100_test(batch_size=64, num_workers=4, 
                       num_classes=DATASET_CLASS['cifar100'],
+                      num_samples=DATASET_SAMPLES['cifar100'], 
                       split_seed=None):
     data_folder = get_data_folder()
     
@@ -468,7 +469,7 @@ def get_cifar100_test(batch_size=64, num_workers=4,
     
     if num_classes < DATASET_CLASS['cifar100']:
         class_idx = get_class_idx(num_classes, num_full_class=DATASET_CLASS['cifar100'], split_seed=split_seed)
-        samples_per_cls = DATASET_SAMPLES['cifar100'] //num_classes
+        samples_per_cls = num_samples //num_classes
 
         test_idx, _ = x_u_split(full_test_set, 
                                 instance_per_cls=samples_per_cls, label_per_cls=samples_per_cls,
@@ -518,10 +519,10 @@ def get_cifar100_dataloaders(batch_size=128, num_workers=8,
                                      train=True,
                                      transform=train_transform)
 
-    NUM_FULL_CLASS = DATASET_CLASS['cifar100']
+    NUM_FULL_CLASS, NUM_FULL_OOD_CLS = DATASET_CLASS['cifar100'], DATASET_CLASS[ood]
     num_id_class = np.clip(num_id_class, 1, NUM_FULL_CLASS)
-    num_ood_class = np.clip(num_ood_class, 0, NUM_FULL_CLASS)
-    num_samples = np.clip(0, num_samples, DATASET_SAMPLES['cifar100'])
+    num_ood_class = np.clip(num_ood_class, 0, NUM_FULL_OOD_CLS)
+    num_samples = np.clip(0, num_samples, DATASET_SAMPLES['cifar100'] + DATASET_SAMPLES[ood])
     num_labels = np.clip(0, num_labels, num_samples)
 
     # Fully supervied training
@@ -535,13 +536,12 @@ def get_cifar100_dataloaders(batch_size=128, num_workers=8,
                             drop_last=True)
         return train_loader, None
 
-
     # Split dataset given requested num_id_class
     class_idx = get_class_idx(num_id_class, num_full_class=NUM_FULL_CLASS, split_seed=class_split_seed) \
             if num_id_class < NUM_FULL_CLASS else None
 
     samples_per_cls = num_samples //(num_id_class + num_ood_class)
-    label_per_cls = num_labels //(num_id_class + num_ood_class)
+    label_per_cls = num_labels //(num_id_class)
 
 
     lb_idx, ulb_idx = x_u_split(base_dataset, 

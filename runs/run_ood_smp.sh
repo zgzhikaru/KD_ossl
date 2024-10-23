@@ -6,11 +6,10 @@ id_data="cifar100"
 n_cls=100
 ood="tin"
 n_ood_cls=100
-samples=500
 
 lb=1.0
 split=12345
-trial=1 #0
+trial=0
 tc_trial=0
 method="kd"
 
