@@ -36,14 +36,20 @@ class VIDLoss(nn.Module):
         self.eps = eps
 
     def forward(self, input, target):
-        # pool for dimentsion match
+        # pool for dimension match
+        if len(input.shape) == 2 and len(target.shape) == 2:
+            #input.unsqueeze_(-1).unsqueeze_(-1)
+            #target.unsqueeze_(-1).unsqueeze_(-1)
+            input = input.view(input.shape[0], input.shape[1], 1, 1)
+            target = target.view(target.shape[0], target.shape[1], 1, 1)
+        assert len(input.shape) == 4 and len(target.shape) == 4, "Input needs to be a feature-map"
+
         s_H, t_H = input.shape[2], target.shape[2]
         if s_H > t_H:
             input = F.adaptive_avg_pool2d(input, (t_H, t_H))
         elif s_H < t_H:
             target = F.adaptive_avg_pool2d(target, (s_H, s_H))
-        else:
-            pass
+
         pred_mean = self.regressor(input)
         pred_var = torch.log(1.0+torch.exp(self.log_scale))+self.eps
         pred_var = pred_var.view(1, -1, 1, 1)
