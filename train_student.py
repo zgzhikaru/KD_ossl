@@ -55,8 +55,9 @@ def parse_option():
     parser.add_argument('--ood', type=str, default='tin', choices=['tin', 'places', 'None'], help='The augment Out-of-distribution dataset')
     parser.add_argument('--num_ood_class', type=int, default=200, help='number of classes in the augment dataset')
 
-    parser.add_argument('--samples_per_cls', type=int, action='store', help='Number of samples per class in all datasets')
-    parser.add_argument('--lb_prop', type=float, default=1.0, help='labeled sample proportion within target dataset')
+    parser.add_argument('--num_samples', type=int, action='store', help='Number of samples per class in all datasets')
+    parser.add_argument('--num_labels', type=int, action='store', help='labeled sample proportion within target dataset')
+    #parser.add_argument('--lb_prop', type=float, default=1.0, help='labeled sample proportion within target dataset')
     parser.add_argument('--split_seed', type=int, default=12345, help='random seed for reproducing dataset split')
 
     parser.add_argument('--include-labeled', default=True, help='include labeled-set data into unlabeled-set')
@@ -115,21 +116,17 @@ def parse_option():
     #model_split_seed = state_dict["split_seed"]
 
     assert opt.num_classes > 0, "Must specify a positive number of class"
-
-    #if opt.num_classes < num_tc_head:
-    #    pass
     assert not num_tc_head < opt.num_classes, "Number of teacher heads are insufficient to classify requested number of class"
-    #assert num_tc_head == opt.num_classes, "Teacher and student must have same number of heads"
-    #assert model_split_seed == opt.split_seed, "Warning: Teacher and student are not trained on the same target data split"
-
 
     # Initialize saving directories
-    #num_total_class = opt.num_classes + opt.num_ood_cls
-    smp_val = DATASET_SAMPLES[opt.dataset]//DATASET_CLASS[opt.dataset]
-    opt.model_name = 'M:{}_T:{}_arch:{}_ID:{}_ic:{}_OOD:{}_oc:{}_smp:{}_lb:{}_split:{}_trial:{}'.format(opt.distill, teacher_name, opt.arch, 
+    if opt.num_samples is None:
+        opt.num_samples = DATASET_SAMPLES[opt.dataset]
+    if opt.num_labels is None:
+        opt.num_labels = opt.num_samples
+    opt.model_name = 'M:{}_T:{}_arch:{}_ID:{}_ic:{}_OOD:{}_oc:{}_lb:{}_total:{}_split:{}_trial:{}'.format(opt.distill, teacher_name, opt.arch, 
                                                                                   opt.dataset, opt.num_classes,
                                                                                   opt.ood, opt.num_ood_class, 
-                                                                                  smp_val, opt.lb_prop,
+                                                                                  opt.num_labels, opt.num_samples, 
                                                                                   opt.split_seed, opt.trial                                                                                 
                                                                                   )
     # set the path
@@ -163,13 +160,16 @@ def main():
         opt.num_classes
         # TODO: Get class_idx and pass the shared argument into both train & test set constructor.
         train_loader, utrain_loader = get_cifar100_dataloaders(batch_size=opt.batch_size, num_workers=opt.num_workers,
-                                                                samples_per_cls=opt.samples_per_cls, num_id_class=opt.num_classes,
+                                                                num_id_class=opt.num_classes,
                                                                 ood=opt.ood, num_ood_class=opt.num_ood_class,
-                                                                lb_prop=opt.lb_prop, include_labeled=opt.include_labeled, 
+                                                                num_samples=opt.num_samples, 
+                                                                num_labels=opt.num_labels, include_labeled=opt.include_labeled, 
+                                                                #lb_prop=opt.lb_prop, 
                                                                 split_seed=opt.split_seed, class_split_seed=opt.split_seed)
         val_loader = get_cifar100_test(batch_size=opt.batch_size//2,
                                         num_workers=opt.num_workers//2,
                                         num_classes=opt.num_classes,
+                                        num_samples=opt.num_samples, 
                                         split_seed=opt.split_seed)
     else:
         raise NotImplementedError(opt.dataset)
