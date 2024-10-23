@@ -58,7 +58,7 @@ class TinInstance(torch.utils.data.Dataset):
 
         self.num_classes = len(self.classes)
         self.name = 'tin'
-        print("ood dataset size: ", len(self.img_list))
+        print("original ood dataset size: ", len(self.img_list))
         
 
     def set_index(self, indexes=None):
@@ -66,6 +66,7 @@ class TinInstance(torch.utils.data.Dataset):
             self.img_list = np.array(self.img_list)[indexes]    #self.img_list[indexes]
         else:
             self.img_list = self.img_list
+        print("cropped ood dataset size: ", len(self.img_list))
 
     def init_index(self):
         self.img_list = self.img_list
@@ -121,9 +122,6 @@ class CIFAR100Instance(datasets.CIFAR100):
             assert np.all(real_targets == self.classes[self.targets]), "Incorrect mapping"
 
 
-
-
-
     def __getitem__(self, index):
         img = self.data[index]
         target = self.targets[index]
@@ -141,6 +139,7 @@ class CIFAR100Instance(datasets.CIFAR100):
         
     def __len__(self):
         return len(self.data)
+    
 
 
 class InstanceSample(torch.utils.data.Dataset):

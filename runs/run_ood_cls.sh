@@ -11,13 +11,13 @@ samples=500
 lb=1.0
 split=12345
 trial=0
-method="hint" #"kd"
+method="vid" #"hint" #"kd"
 
 
 #KD_args="--distill "$method" -r 0.9 -a 0.1 -b 0"
 KD_args="--distill $method -a 0.0 -b 1.0 --hint_layer 4"
 
-#n_total=200
+
 min_n_cls=20
 max_n_cls=100
 for n_total in 100 200 
@@ -28,10 +28,9 @@ do
         ID_args="--dataset "$id_data" --num_classes "$n_cls
         OOD_args="--ood "$ood" --num_ood_class "$n_ood_cls
 
+        st_save_name=M:$method"_T:"$tc"_arch:$arch""_ID:"$id_data"_ic:"$n_cls"_OOD:"$ood"_oc:"$n_ood_cls"_smp:"$samples"_lb:"$lb"_split:"$split"_trial:"$trial
         tc_save_name="M:supCE_arch:$tc""_ID:"$id_data"_ic:"$max_n_cls"_trial:"$trial
         tc_path=$ROOT_DIR/teacher/model/$tc_save_name/$tc"_last.pth"
-        
-        st_save_name=M:$method"_T:"$tc"_arch:$arch""_ID:"$id_data"_ic:"$n_cls"_OOD:"$ood"_oc:"$n_ood_cls"_smp:"$samples"_lb:"$lb"_split:"$split"_trial:"$trial
         
         python train_student.py --tc_path $tc_path --arch $arch $ID_args $OOD_args $KD_args #--samples_per_cls $samples 
         for cls in `seq $n_cls -20 $min_n_cls`; do

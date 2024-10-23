@@ -206,7 +206,6 @@ def train_ssldistill(epoch, iter_per_epoch, train_loader,utrain_loader, module_l
 
     #for batch_idx in range(len(train_loader)):
     for batch_idx in range(iter_per_epoch):
-    #for batch_idx, ()
         # ==================labeled data================
         curr_iter = epoch * iter_per_epoch + batch_idx
 
@@ -325,10 +324,17 @@ def train_ssldistill(epoch, iter_per_epoch, train_loader,utrain_loader, module_l
                 f_t = module_list[2](feat_t[-1])
                 loss_kd = criterion_kd(f_s, f_t)
             elif opt.distill == 'vid':
-                g_s = feat_s[1:-1]
-                g_t = feat_t[1:-1]
-                loss_group = [c(f_s, f_t) for f_s, f_t, c in zip(g_s, g_t, criterion_kd)]
-                loss_kd = sum(loss_group)
+                if opt.hint_layer < 4:
+                    g_s = feat_s[1:-1]
+                    g_t = feat_t[1:-1]
+                    loss_group = [c(f_s, f_t) for f_s, f_t, c in zip(g_s, g_t, criterion_kd)]
+                    loss_kd = sum(loss_group)
+                else:   # Distill from the penultimate layer
+                    f_s = feat_s[-1]
+                    f_t = feat_t[-1]
+                    loss_kd = criterion_kd(f_s, f_t)
+                
+                logger.add_scalar('train/log_scale', criterion_kd.log_scale.detach().item(), curr_iter)
             elif opt.distill == 'abound':
                 # can also add loss to this stage
                 loss_kd = 0
@@ -339,6 +345,12 @@ def train_ssldistill(epoch, iter_per_epoch, train_loader,utrain_loader, module_l
                 factor_s = module_list[1](feat_s[-2])
                 factor_t = module_list[2](feat_t[-2], is_factor=True)
                 loss_kd = criterion_kd(factor_s, factor_t)
+            elif opt.distill == 'pad':
+                f_s = feat_s[-1]
+                f_t = feat_t[-1]
+                #loss_kd = criterion_kd(f_s, f_t)
+                loss_kd, avg_logvar = criterion_kd(f_s, f_t, return_logvar=True)
+                logger.add_scalar('train/avg_logvar', avg_logvar.detach().item(), curr_iter)
             else:
                 raise NotImplementedError(opt.distill)
 

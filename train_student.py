@@ -23,7 +23,7 @@ from distiller_zoo.AIN import transfer_conv, statm_loss
 
 from dataset.cifar100 import get_cifar100_dataloaders, get_cifar100_test, DATASET_CLASS, DATASET_SAMPLES
 from helper.util import adjust_learning_rate
-from distiller_zoo import DistillKL, HintLoss, Attention, Similarity, Correlation, VIDLoss, RKDLoss
+from distiller_zoo import DistillKL, HintLoss, Attention, Similarity, Correlation, VIDLoss, RKDLoss, PADLoss
 from distiller_zoo import PKT, ABLoss, FactorTransfer, KDSVD, FSP, NSTLoss,CRDLoss
 
 from helper.loops import train_ssldistill as train_ssl
@@ -82,6 +82,8 @@ def parse_option():
     parser.add_argument('-r', '--gamma', type=float, default=1, help='weight for classification')
     parser.add_argument('-a', '--alpha', type=float, default=None, help='weight balance for KD')
     parser.add_argument('-b', '--beta', type=float, default=None, help='weight balance for other losses')
+    parser.add_argument('-pb', '--pre_beta', type=float, default=None, help='weight balance for distillation loss during pre-training')
+
 
     # KL distillation
     parser.add_argument('--temp', type=float, default=4, help='temperature for KD distillation')
@@ -157,7 +159,7 @@ def main():
 
     # dataloader
     if opt.dataset == 'cifar100':
-        opt.num_classes
+        print("samples_per_cls", opt.samples_per_cls)
         # TODO: Get class_idx and pass the shared argument into both train & test set constructor.
         train_loader, utrain_loader = get_cifar100_dataloaders(batch_size=opt.batch_size, num_workers=opt.num_workers,
                                                                 num_id_class=opt.num_classes,
@@ -246,11 +248,15 @@ def main():
         trainable_list.append(embed_s)
         trainable_list.append(embed_t)
     elif opt.distill == 'vid':
-        s_n = [f.shape[1] for f in feat_s[1:-1]]
-        t_n = [f.shape[1] for f in feat_t[1:-1]]
-        criterion_kd = nn.ModuleList(
-            [VIDLoss(s, t, t) for s, t in zip(s_n, t_n)]
-        )
+        if opt.hint_layer < 4:
+            s_n = [f.shape[1] for f in feat_s[1:-1]]
+            t_n = [f.shape[1] for f in feat_t[1:-1]]
+            criterion_kd = nn.ModuleList(
+                [VIDLoss(s, t, t) for s, t in zip(s_n, t_n)]
+            )
+        else:
+            s_n, t_n = feat_s[-1].shape[1], feat_t[-1].shape[1]
+            criterion_kd = VIDLoss(s_n, t_n, t_n)
         # add this as some parameters in VIDLoss need to be updated
         trainable_list.append(criterion_kd)
     elif opt.distill == 'abound':
@@ -290,6 +296,15 @@ def main():
         init(model_s, model_t, init_trainable_list, criterion_kd, train_loader, logger, opt)
         # classification training
         pass
+    elif opt.distill == 'pad':
+        s_n, t_n = feat_s[-1].shape[1], feat_t[-1].shape[1]
+        criterion_kd = PADLoss(s_n, t_n)
+
+        # init stage training
+        criterion_init = nn.MSELoss()
+        init_trainable_list = nn.ModuleList([])
+        init_trainable_list.append(model_s.get_feat_modules())
+        init(model_s, model_t, init_trainable_list, criterion_init, train_loader, logger, opt, criterion_cls=criterion_cls)
     else:
         raise NotImplementedError(opt.distill)
 
@@ -334,6 +349,7 @@ def main():
         total_data += len(train_loader.dataset)
     iter_per_epoch = total_data // opt.batch_size
     """
+    # TODO: Set IpE to min of two to avoid loader ending before each loop
     iter_per_epoch = len(train_loader.dataset) // opt.batch_size  #DATASET_SAMPLES[opt.dataset] // opt.batch_size
     print("iter per epoch:", iter_per_epoch)
 
