@@ -49,15 +49,14 @@ def parse_option():
 
     # labeled dataset
     parser.add_argument('--dataset', type=str, default='cifar100', choices=['cifar100'], help='Target dataset')
-    parser.add_argument('--num_classes', type=int, default=200, help='number of classes in the target dataset')
+    parser.add_argument('--num_classes', type=int, action='store', help='number of classes in the target dataset')
   
     # select unlabeled dataset
     parser.add_argument('--ood', type=str, default='tin', choices=['tin', 'places', 'None'], help='The augment Out-of-distribution dataset')
-    parser.add_argument('--num_ood_class', type=int, default=200, help='number of classes in the augment dataset')
+    parser.add_argument('--num_ood_class', type=int, action='store', help='number of classes in the augment dataset')
 
     parser.add_argument('--num_samples', type=int, action='store', help='Number of samples per class in all datasets')
     parser.add_argument('--num_labels', type=int, action='store', help='labeled sample proportion within target dataset')
-    #parser.add_argument('--lb_prop', type=float, default=1.0, help='labeled sample proportion within target dataset')
     parser.add_argument('--split_seed', type=int, default=12345, help='random seed for reproducing dataset split')
 
     parser.add_argument('--include-labeled', default=True, help='include labeled-set data into unlabeled-set')
@@ -121,10 +120,16 @@ def parse_option():
     assert not num_tc_head < opt.num_classes, "Number of teacher heads are insufficient to classify requested number of class"
 
     # Initialize saving directories
+    if opt.num_classes is None:
+        opt.num_classes = DATASET_CLASS[opt.dataset]
+    if opt.num_ood_class is None:
+        opt.num_ood_class = DATASET_CLASS[opt.ood]
+
     if opt.num_samples is None:
         opt.num_samples = DATASET_SAMPLES[opt.dataset]
     if opt.num_labels is None:
         opt.num_labels = opt.num_samples
+        
     opt.model_name = 'M:{}_T:{}_arch:{}_ID:{}_ic:{}_OOD:{}_oc:{}_lb:{}_total:{}_split:{}_trial:{}'.format(opt.distill, teacher_name, opt.arch, 
                                                                                   opt.dataset, opt.num_classes,
                                                                                   opt.ood, opt.num_ood_class, 

@@ -522,13 +522,15 @@ def get_cifar100_dataloaders(batch_size=128, num_workers=8,
     NUM_FULL_CLASS, NUM_FULL_OOD_CLS = DATASET_CLASS['cifar100'], DATASET_CLASS[ood]
     num_id_class = np.clip(num_id_class, 1, NUM_FULL_CLASS)
     num_ood_class = np.clip(num_ood_class, 0, NUM_FULL_OOD_CLS)
-    num_samples = np.clip(0, num_samples, DATASET_SAMPLES['cifar100'] + DATASET_SAMPLES[ood])
+    
+    num_samples = np.clip(0, num_samples, min(DATASET_SAMPLES['cifar100'], DATASET_SAMPLES[ood]))
     num_labels = np.clip(0, num_labels, num_samples)
 
     # Fully supervied training
     #if not lb_prop < 1.0 and not include_labeled \
-    if not (num_labels < num_samples or include_labeled \
-        or num_ood_class > 0 or num_id_class < NUM_FULL_CLASS):
+    if not (num_id_class < NUM_FULL_CLASS or num_samples < DATASET_SAMPLES['cifar100'] 
+        or num_labels < num_samples or include_labeled \
+        or num_ood_class > 0):
         train_loader = DataLoader(base_dataset,
                             batch_size=batch_size,
                             shuffle=True,

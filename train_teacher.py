@@ -15,7 +15,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from models import model_dict as MODEL_DICT
 
-from dataset.cifar100 import get_cifar100_dataloaders, get_cifar100_test
+from dataset.cifar100 import get_cifar100_dataloaders, get_cifar100_test, DATASET_SAMPLES, DATASET_CLASS
 from helper.util import adjust_learning_rate
 from helper.loops import train_vanilla as train, validate
 from utils.utils import init_logging
@@ -41,10 +41,9 @@ def parse_option():
 
     # labeled dataset
     parser.add_argument('--dataset', type=str, default='cifar100', choices=['cifar100'], help='dataset')
-    parser.add_argument('--num_classes', type=int, default=100, help='number of classes in the split dataset')
+    parser.add_argument('--num_classes', type=int, action='store', help='number of classes in the split dataset')
     
-    parser.add_argument('--samples_per_cls', type=int, action='store', help='Number of samples per class in all datasets')
-    parser.add_argument('--lb_prop', type=float, default=1.0, help='labeled sample proportion within target dataset')
+    parser.add_argument('--num_samples', type=int, action='store', help='Number of samples per class in all datasets')
     parser.add_argument('--split_seed', type=int, default=12345, help='random seed for reproducing dataset split')
 
     # optimization
@@ -76,9 +75,14 @@ def parse_option():
     for it in iterations:
         opt.lr_decay_epochs.append(int(it))
 
+    if opt.num_classes is None:
+        opt.num_classes = DATASET_CLASS[opt.dataset]
+    if opt.num_samples is None:
+        opt.num_samples = DATASET_SAMPLES[opt.dataset]
+
     method = 'supCE'
-    opt.model_name = 'M:{}_arch:{}_ID:{}_ic:{}_trial:{}'.format(method, opt.arch,  
-                                                                opt.dataset, opt.num_classes,
+    opt.model_name = 'M:{}_arch:{}_ID:{}_ic:{}_total:{}_trial:{}'.format(method, opt.arch, opt.dataset, 
+                                                                opt.num_classes, opt.num_samples,
                                                                 opt.trial                                                                                
                                                                 )  
 
@@ -112,11 +116,12 @@ def main():
         train_loader, _ = \
             get_cifar100_dataloaders(batch_size=opt.batch_size, num_workers=opt.num_workers,
                                     num_id_class=opt.num_classes, num_ood_class=0,
-                                    samples_per_cls=opt.samples_per_cls, lb_prop=opt.lb_prop, 
+                                    num_samples=opt.num_samples, num_labels=opt.num_samples,
                                     split_seed=opt.split_seed, class_split_seed=opt.split_seed)
         val_loader = get_cifar100_test(batch_size=opt.batch_size//2,
                                         num_workers=opt.num_workers//2,
                                         num_classes=opt.num_classes,
+                                        num_samples=opt.num_samples,
                                         split_seed=opt.split_seed)
 
     else:
