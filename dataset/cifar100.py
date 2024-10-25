@@ -42,7 +42,7 @@ DATASET_SAMPLES = {
 
 # TIN: TinyImageNet
 class TinInstance(torch.utils.data.Dataset):
-    def __init__(self, data_folder, transform): #, subset=200):
+    def __init__(self, data_folder, transform):
         self.transform = transform
         data_path = '%s/tinyImageNet200/%s/' % (data_folder, 'train')
 
@@ -383,7 +383,6 @@ def x_u_split(base_dataset,
         labeled_idx = labeled_idx[class_idx]
     labeled_idx = labeled_idx.flatten()
 
-    #if not (lb_prop < 1.0 or include_labeled) \
     if not (label_per_cls < instance_per_cls or include_labeled) \
         and (class_idx is None or not include_unseen):   
         # Unlabeled set does not exist at all
@@ -407,10 +406,9 @@ def x_u_split(base_dataset,
         labeled_idx = np.concatenate([labeled_idx for _ in range(int(np.ceil(min_size / len(labeled_idx))))])
     if len(unlabeled_idx) < min_size:
         unlabeled_idx = np.concatenate([unlabeled_idx for _ in range(int(np.ceil(min_size / len(unlabeled_idx))))])
-    #np.random.shuffle(labeled_idx)
-    print("Num seen class: ", num_cls)
-    print("Num labeled: ", len(labeled_idx))
-    print("Num unlabeled: ", 0 if unlabeled_idx is None else len(unlabeled_idx))
+
+    print("Num labeled ID: ", len(labeled_idx))
+    print("Num unlabeled ID: ", 0 if unlabeled_idx is None else len(unlabeled_idx))
 
     return labeled_idx, unlabeled_idx
 
@@ -497,8 +495,6 @@ def get_cifar100_dataloaders(batch_size=128, num_workers=8,
                              ood='tin', num_ood_class=DATASET_CLASS['tin'], 
                              num_samples=DATASET_SAMPLES['cifar100'], 
                              num_labels=DATASET_SAMPLES['cifar100'],
-                             #lb_prop=1.0, 
-                             label_per_cls=None, 
                              include_labeled=False, 
                              split_seed=None, class_split_seed=None):
     """
@@ -523,7 +519,7 @@ def get_cifar100_dataloaders(batch_size=128, num_workers=8,
     num_id_class = np.clip(num_id_class, 1, NUM_FULL_CLASS)
     num_ood_class = np.clip(num_ood_class, 0, NUM_FULL_OOD_CLS)
     
-    num_samples = np.clip(0, num_samples, min(DATASET_SAMPLES['cifar100'], DATASET_SAMPLES[ood]))
+    num_samples = np.clip(0, num_samples, DATASET_SAMPLES['cifar100'] + DATASET_SAMPLES[ood])
     num_labels = np.clip(0, num_labels, num_samples)
 
     # Fully supervied training
@@ -543,7 +539,7 @@ def get_cifar100_dataloaders(batch_size=128, num_workers=8,
             if num_id_class < NUM_FULL_CLASS else None
 
     samples_per_cls = num_samples //(num_id_class + num_ood_class)
-    label_per_cls = num_labels //(num_id_class)
+    label_per_cls = num_labels //num_id_class
 
 
     lb_idx, ulb_idx = x_u_split(base_dataset, 
@@ -572,7 +568,7 @@ def get_cifar100_dataloaders(batch_size=128, num_workers=8,
                             shuffle=True,
                             num_workers=num_workers,
                             drop_last=True)
-    print("num seen class: ", lb_train_set.num_classes)
+    print("num seen ID class: ", lb_train_set.num_classes)
     print("labeled datasize: ", len(lb_train_set))
 
     if not num_ood_class > 0:   # SSL with only ID data

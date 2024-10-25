@@ -163,7 +163,8 @@ def train_distill(epoch, train_loader, module_list, criterion_list, optimizer, o
     return top1.avg, losses.avg
 
 
-def train_ssldistill(epoch, iter_per_epoch, train_loader,utrain_loader, module_list, criterion_list, optimizer, opt, logger=None):
+def train_ssldistill(epoch, iter_per_epoch, train_loader, utrain_loader, 
+                     module_list, criterion_list, optimizer, opt, logger=None):
     """One epoch distillation"""
     for module in module_list:
         module.train()
@@ -235,7 +236,6 @@ def train_ssldistill(epoch, iter_per_epoch, train_loader,utrain_loader, module_l
         if opt.distill in ['abound']:
             preact = True
 
-        #inputs = torch.cat((input_l, input_u1), dim=0).cuda()
 
         feat_s, logit_s = model_s(inputs, is_feat=True, preact=preact)
         with torch.no_grad():

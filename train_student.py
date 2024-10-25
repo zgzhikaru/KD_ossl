@@ -59,7 +59,7 @@ def parse_option():
     parser.add_argument('--num_labels', type=int, action='store', help='labeled sample proportion within target dataset')
     parser.add_argument('--split_seed', type=int, default=12345, help='random seed for reproducing dataset split')
 
-    parser.add_argument('--include-labeled', default=True, help='include labeled-set data into unlabeled-set')
+    parser.add_argument('--include-labeled', action='store_true', help='include labeled-set data into unlabeled-set')
 
     # optimization
     parser.add_argument('--learning_rate', type=float, default=0.05, help='learning rate')
@@ -170,7 +170,6 @@ def main():
                                                                 ood=opt.ood, num_ood_class=opt.num_ood_class,
                                                                 num_samples=opt.num_samples, 
                                                                 num_labels=opt.num_labels, include_labeled=opt.include_labeled, 
-                                                                #lb_prop=opt.lb_prop, 
                                                                 split_seed=opt.split_seed, class_split_seed=opt.split_seed)
         val_loader = get_cifar100_test(batch_size=opt.batch_size//2,
                                         num_workers=opt.num_workers//2,
@@ -344,15 +343,6 @@ def main():
     print('teacher accuracy: ', teacher_acc)
 
 
-    # NOTE: Originally total_data = len(train_loader.dataset)//batch_size
-    """
-    u_data_len = len(utrain_loader.dataset) if utrain_loader is not None else 0
-    #total_data = (len(train_loader.dataset) + u_data_len)//2 if not opt.include_labeled else u_data_len//2 
-    total_data = u_data_len
-    if opt.include_labeled:
-        total_data += len(train_loader.dataset)
-    iter_per_epoch = total_data // opt.batch_size
-    """
     # TODO: Set IpE to min of two to avoid loader ending before each loop
     iter_per_epoch = len(train_loader.dataset) // opt.batch_size  #DATASET_SAMPLES[opt.dataset] // opt.batch_size
     print("iter per epoch:", iter_per_epoch)

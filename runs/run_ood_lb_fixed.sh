@@ -7,13 +7,12 @@ ood="tin"
 
 split=12345
 trial=0
-method="kd" #"hint"
+method="kd" #"hint"   #
 
 KD_args="--distill "$method" -r 0.9 -a 0.1 -b 0"
 #KD_args="--distill $method -a 0.0 -b 1.0 --hint_layer 4"
 
 
-samples_total=75000
 full_samples=500 #num_labels
 n_id_cls=100
 max_ood_cls=200
@@ -23,9 +22,9 @@ min_ood_cls=50
 for samples_total in 75000 60000; #100000 50000; 
 do
 num_labels=$((samples_total * n_id_cls/(n_id_cls + max_ood_cls)))
-echo "Number of labels:" $num_labels
-#tc_samples=$num_labels
 min_ood_cls=$((samples_total/full_samples - n_id_cls))
+
+echo "Number of labels:" $num_labels
 
 for n_ood_cls in `seq $max_ood_cls -50 $min_ood_cls`; 
 do
