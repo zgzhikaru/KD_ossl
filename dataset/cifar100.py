@@ -519,8 +519,8 @@ def get_cifar100_dataloaders(batch_size=128, num_workers=8,
     num_id_class = np.clip(num_id_class, 1, NUM_FULL_CLASS)
     num_ood_class = np.clip(num_ood_class, 0, NUM_FULL_OOD_CLS)
     
-    num_samples = np.clip(0, num_samples, DATASET_SAMPLES['cifar100'] + DATASET_SAMPLES[ood])
-    num_labels = np.clip(0, num_labels, num_samples)
+    num_samples = np.clip(num_samples, 0, DATASET_SAMPLES['cifar100'] + DATASET_SAMPLES[ood])
+    num_labels = np.clip(num_labels, 0, num_samples)
 
     # Fully supervied training
     #if not lb_prop < 1.0 and not include_labeled \
