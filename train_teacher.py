@@ -121,7 +121,7 @@ def main():
         val_loader = get_cifar100_test(batch_size=opt.batch_size//2,
                                         num_workers=opt.num_workers//2,
                                         num_classes=opt.num_classes,
-                                        num_samples=opt.num_samples,
+                                        #num_samples=opt.num_samples,
                                         split_seed=opt.split_seed)
 
     else:

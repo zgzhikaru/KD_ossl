@@ -353,8 +353,11 @@ def train_ssldistill(epoch, iter_per_epoch, train_loader, utrain_loader,
                 logger.add_scalar('train/avg_logvar', avg_logvar.detach().item(), curr_iter)
             else:
                 raise NotImplementedError(opt.distill)
-
-            loss = opt.gamma * loss_cls + opt.alpha * loss_div + opt.beta * loss_kd
+            
+            if ul_ood_exist and opt.include_labeled:    # NOTE: Multiply by two to account for double batch-size on distillation loss
+                loss = opt.gamma * loss_cls + (opt.alpha * loss_div + opt.beta * loss_kd) * 2
+            else:
+                loss = opt.gamma * loss_cls + opt.alpha * loss_div + opt.beta * loss_kd
             #div_losses.update(loss_div.detach().item(), inputs.size(0))
             #kd_losses.update(loss_kd.detach().item(), inputs.size(0))
             

@@ -8,7 +8,7 @@ n_cls_max=100
 trial=0
 max_samples=500
 
-for samples in 25000 20000 #33333 16666
+for samples in 33333 #25000 20000 #16600 
 do
 for tc in 'resnet32x4' 'wrn_40_2'; do
     save_name="M:"$method"_arch:$tc""_ID:"$id_data"_ic:"$n_cls_max"_total:"$samples"_trial:"$trial

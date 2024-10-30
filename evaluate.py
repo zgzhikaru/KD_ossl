@@ -53,7 +53,7 @@ def main():
     num_full_class=DATASET_CLASS[opt.dataset]
     
     # Collect model attributes
-    assert os.path.exists(opt.model_path), "Model path does not exists"
+    assert os.path.exists(opt.model_path), "Model path does not exists: %s" % (opt.model_path)
     out_dir = os.path.dirname(opt.model_path)
 
     state_dict = torch.load(opt.model_path)

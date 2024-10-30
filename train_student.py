@@ -130,10 +130,11 @@ def parse_option():
     if opt.num_labels is None:
         opt.num_labels = opt.num_samples
         
-    opt.model_name = 'M:{}_T:{}_arch:{}_ID:{}_ic:{}_OOD:{}_oc:{}_lb:{}_total:{}_split:{}_trial:{}'.format(opt.distill, teacher_name, opt.arch, 
+    opt.model_name = 'M:{}_T:{}_arch:{}_ID:{}_ic:{}_OOD:{}_oc:{}_lb:{}_total:{}_l2u:{}_split:{}_trial:{}'.format(opt.distill, teacher_name, opt.arch, 
                                                                                   opt.dataset, opt.num_classes,
                                                                                   opt.ood, opt.num_ood_class, 
                                                                                   opt.num_labels, opt.num_samples, 
+                                                                                  opt.include_labeled, 
                                                                                   opt.split_seed, opt.trial                                                                                 
                                                                                   )
     # set the path
@@ -174,7 +175,7 @@ def main():
         val_loader = get_cifar100_test(batch_size=opt.batch_size//2,
                                         num_workers=opt.num_workers//2,
                                         num_classes=opt.num_classes,
-                                        num_samples=opt.num_samples, 
+                                        #num_samples=opt.num_samples, 
                                         split_seed=opt.split_seed)
     else:
         raise NotImplementedError(opt.dataset)

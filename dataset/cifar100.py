@@ -541,7 +541,6 @@ def get_cifar100_dataloaders(batch_size=128, num_workers=8,
     samples_per_cls = num_samples //(num_id_class + num_ood_class)
     label_per_cls = num_labels //num_id_class
 
-
     lb_idx, ulb_idx = x_u_split(base_dataset, 
                                 instance_per_cls=samples_per_cls, label_per_cls=label_per_cls,
                                 #instance_prop=instance_prop, lb_prop=lb_prop, 

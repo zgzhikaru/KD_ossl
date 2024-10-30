@@ -8,9 +8,9 @@ n_cls_max=100
 trial=0
 max_samples=500
 
-for samples in 20000 #25000 #33333 16666
+for samples in 16600 33300 #20000 25000 
 do
-for tc in 'resnet8x4' #'wrn_40_1'; 
+for tc in 'resnet8x4' 'wrn_40_1' 
 do
     save_name="M:"$method"_arch:$tc""_ID:"$id_data"_ic:"$n_cls_max"_total:"$samples"_trial:"$trial
     

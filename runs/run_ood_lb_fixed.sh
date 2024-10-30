@@ -1,5 +1,5 @@
 ROOT_DIR="results/"
-tc=$1 #"wrn_40_2" #"resnet32x4"
+tc=$1   #"wrn_40_2" #"resnet32x4"
 arch=$2   #"wrn_40_1"   #"resnet8x4"
 
 id_data="cifar100"
@@ -17,11 +17,17 @@ full_samples=500 #num_labels
 n_id_cls=100
 max_ood_cls=200
 min_ood_cls=50
+include_lb2ub='True'
 
-
-for samples_total in 75000 60000; #100000 50000; 
+for samples_total in 100000 75000   #50000; 
 do
-num_labels=$((samples_total * n_id_cls/(n_id_cls + max_ood_cls)))
+max_num_labels=$((samples_total/(n_id_cls + max_ood_cls) * n_id_cls))
+for num_labels in 16600 25000
+do
+echo "Upper bound of labels num "$max_num_labels
+if (($num_labels >= $max_num_labels)); then # Filter unwanted experiment
+    continue
+fi
 min_ood_cls=$((samples_total/full_samples - n_id_cls))
 
 echo "Number of labels:" $num_labels
@@ -30,14 +36,15 @@ for n_ood_cls in `seq $max_ood_cls -50 $min_ood_cls`;
 do
     ID_args="--dataset "$id_data" --num_classes "$n_id_cls
     OOD_args="--ood "$ood" --num_ood_class "$n_ood_cls
-    SPLIT_args="--num_samples "$samples_total" --num_labels "$num_labels
+    SPLIT_args="--num_samples "$samples_total" --num_labels "$num_labels" --include-labeled"
 
-    st_save_name=M:$method"_T:"$tc"_arch:$arch""_ID:"$id_data"_ic:"$n_id_cls"_OOD:"$ood"_oc:"$n_ood_cls"_lb:"$num_labels"_total:"$samples_total"_split:"$split"_trial:"$trial
+    st_save_name=M:$method"_T:"$tc"_arch:$arch""_ID:"$id_data"_ic:"$n_id_cls"_OOD:"$ood"_oc:"$n_ood_cls"_lb:"$num_labels"_total:"$samples_total"_l2u:"$include_lb2ub"_split:"$split"_trial:"$trial
     tc_save_name="M:supCE_arch:$tc""_ID:"$id_data"_ic:"$n_id_cls"_total:"$num_labels"_trial:"$trial
-    #tc_save_name="M:supCE_arch:$tc""_ID:"$id_data"_ic:"$n_id_cls"_total:"$full_samples"_trial:"$trial
     tc_path=$ROOT_DIR/teacher/model/$tc_save_name/$tc"_last.pth"
         
+    echo $st_save_name
     python train_student.py --tc_path $tc_path --arch $arch $ID_args $OOD_args $SPLIT_args $KD_args
     python evaluate.py --model_path $ROOT_DIR/student/model/$st_save_name/$arch"_last.pth" --num_classes $n_id_cls --dataset $id_data --out_dir $ROOT_DIR/student/log/$st_save_name
+done
 done
 done
